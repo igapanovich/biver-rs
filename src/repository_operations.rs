@@ -1,8 +1,11 @@
+use crate::hash;
 use crate::repository_context::RepositoryContext;
-use crate::repository_data::{RepositoryData, Version, VersionId};
+use crate::repository_data::{RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
+use crate::version_id::VersionId;
 use chrono::Utc;
 use std::ffi::OsString;
+use std::fs::File;
 use std::path::PathBuf;
 use std::{fs, io};
 
@@ -56,23 +59,39 @@ fn initial_repository_data() -> RepositoryData {
     RepositoryData { head: None, versions: vec![] }
 }
 
-pub fn commit_version(mut repo: RepositoryContext, description: String) -> Result<(), io::Error> {
+pub enum CommitResult {
+    Ok,
+    NothingToCommit,
+}
+
+pub fn commit_version(mut repo: RepositoryContext, description: String) -> Result<CommitResult, io::Error> {
     if repo.data.head.is_none() && !repo.data.versions.is_empty() {
         return Err(io::Error::new(io::ErrorKind::Other, "Only the initial version can have no parent."));
+    }
+
+    let versioned_file = File::open(&repo.paths.versioned_file)?;
+
+    let xxh3_128 = hash::xxh3_128(&versioned_file)?;
+
+    if let Some(head) = repo.data.head_version().as_ref() {
+        if head.versioned_file_xxh3_128 == xxh3_128 {
+            return Ok(CommitResult::NothingToCommit);
+        }
     }
 
     let new_version_id = VersionId::new();
 
     let blob_file_name = new_version_id.to_file_name();
-    let blob_file_path = repo.paths.repository_dir.join(blob_file_name.clone());
+    let blob_file_path = repo.paths.repository_dir.join(&blob_file_name);
 
-    fs::copy(repo.paths.versioned_file, blob_file_path)?;
+    fs::copy(&repo.paths.versioned_file, blob_file_path)?;
 
     let new_version = Version {
         id: new_version_id,
-        parent: repo.data.head.clone(),
-        description,
         creation_time: Utc::now(),
+        versioned_file_xxh3_128: xxh3_128,
+        description,
+        parent: repo.data.head.clone(),
         blob_file_name,
     };
 
@@ -82,5 +101,5 @@ pub fn commit_version(mut repo: RepositoryContext, description: String) -> Resul
     let new_data_file_content = serde_json::to_string_pretty(&repo.data)?;
     fs::write(&repo.paths.data_file, new_data_file_content)?;
 
-    Ok(())
+    Ok(CommitResult::Ok)
 }
