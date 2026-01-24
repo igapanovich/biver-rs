@@ -142,8 +142,9 @@ fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes: bo
         let head_badge = if repo_data.head_version().id == version.id { "[HEAD] " } else { "" };
 
         println!(
-            "{:<21}{:<nickname_padding$}{}{}{}",
+            "{:<20}{} {:<nickname_padding$}{}{}{}",
             version.creation_time.format("%Y-%m-%d %H:%M:%S").to_string().blue(),
+            version.id.bs58().bright_black(),
             version.nickname.white(),
             branch_badge.bright_blue(),
             head_badge.magenta(),

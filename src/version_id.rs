@@ -11,4 +11,7 @@ impl VersionId {
     pub fn to_file_name(&self) -> String {
         self.0.to_string()
     }
+    pub fn bs58(&self) -> String {
+        bs58::encode(self.0.as_bytes()).into_string()
+    }
 }
