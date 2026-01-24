@@ -1,9 +1,10 @@
 use crate::repository_context::RepositoryContext;
-use crate::repository_data::{RepositoryData, Version};
+use crate::repository_data::{Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
 use crate::{hash, nickname};
 use chrono::Utc;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::path::PathBuf;
@@ -60,23 +61,24 @@ fn repository_data(repository_paths: &RepositoryPaths) -> Result<Option<Reposito
 pub enum CommitResult {
     Ok,
     NothingToCommit,
+    BranchRequired,
 }
 
-pub fn commit_initial_version(paths: &RepositoryPaths, description: &str) -> Result<CommitResult, io::Error> {
+pub fn commit_initial_version(paths: &RepositoryPaths, branch: Option<&str>, description: &str) -> Result<CommitResult, io::Error> {
     if !fs::exists(&paths.repository_dir)? {
         fs::create_dir(&paths.repository_dir)?;
     } else if fs::exists(&paths.data_file)? {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, "The data file already exists."));
     }
 
-    commit_version_common(paths, None, description)
+    commit_version_common(paths, None, branch, description)
 }
 
-pub fn commit_version(repo: &RepositoryContext, description: &str) -> Result<CommitResult, io::Error> {
-    commit_version_common(&repo.paths, Some(&repo.data), description)
+pub fn commit_version(repo: &RepositoryContext, branch: Option<&str>, description: &str) -> Result<CommitResult, io::Error> {
+    commit_version_common(&repo.paths, Some(&repo.data), branch, description)
 }
 
-fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, description: &str) -> Result<CommitResult, io::Error> {
+fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, branch: Option<&str>, description: &str) -> Result<CommitResult, io::Error> {
     let versioned_file = File::open(&paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -86,6 +88,13 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>,
     {
         return Ok(CommitResult::NothingToCommit);
     }
+
+    let branch = match (branch, data) {
+        (Some(branch), _) => branch,
+        (None, None) => "main",
+        (None, Some(RepositoryData { head: Head::Branch(branch), .. })) => branch,
+        (None, Some(RepositoryData { head: Head::Version(_), .. })) => return Ok(CommitResult::BranchRequired),
+    };
 
     let new_version_id = VersionId::new();
 
@@ -100,20 +109,24 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>,
         nickname: nickname::new_nickname(xxh3_128),
         versioned_file_xxh3_128: xxh3_128,
         description: description.to_string(),
-        parent: data.as_ref().map(|data| data.head),
+        parent: data.as_ref().map(|data| data.head_version().id),
         blob_file_name,
     };
+
+    let new_head = Head::Branch(branch.to_string());
 
     let data = match data {
         Some(data) => {
             let mut data = data.clone();
-            data.head = new_version.id;
+            data.head = new_head;
             data.versions.push(new_version);
+            data.branches.insert(branch.to_string(), new_version_id);
             data
         }
         None => RepositoryData {
-            head: new_version.id,
+            head: new_head,
             versions: vec![new_version],
+            branches: HashMap::from([(branch.to_string(), new_version_id)]),
         },
     };
 
