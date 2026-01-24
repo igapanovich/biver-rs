@@ -14,6 +14,9 @@ pub enum Commands {
     Status {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
         versioned_file_path: PathBuf,
+
+        #[arg(short = 'a', long = "all")]
+        all: bool,
     },
 
     /// Commit current changes to a new version

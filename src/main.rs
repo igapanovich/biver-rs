@@ -1,5 +1,5 @@
 use crate::cli_arguments::{CliArguments, Commands};
-use crate::repository_data::RepositoryData;
+use crate::repository_data::{RepositoryData, Version};
 use crate::repository_operations::{CommitResult, RepositoryContextResult};
 use clap::Parser;
 use colored::Colorize;
@@ -18,12 +18,12 @@ fn main() -> Result<ExitCode, std::io::Error> {
     let cli_arguments = CliArguments::parse();
 
     match cli_arguments.command {
-        Commands::Status { versioned_file_path } => {
+        Commands::Status { versioned_file_path, all } => {
             let repository_context = repository_operations::repository_context(&versioned_file_path)?;
 
             match repository_context {
                 RepositoryContextResult::NotInitialized(_) => println!("Not initialized"),
-                RepositoryContextResult::Initialized(repository_data) => print_repository_data(&repository_data.data),
+                RepositoryContextResult::Initialized(repository_data) => print_repository_data(&repository_data.data, all),
             }
         }
 
@@ -54,11 +54,37 @@ fn main() -> Result<ExitCode, std::io::Error> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn print_repository_data(repository_data: &RepositoryData) {
-    let mut sorted_versions = repository_data.versions.clone();
-    sorted_versions.sort_by(|a, b| b.creation_time.cmp(&a.creation_time).reverse());
+const MAX_VERSIONS_TO_PRINT: usize = 20;
 
-    for version in &sorted_versions {
+fn print_repository_data(repository_data: &RepositoryData, all: bool) {
+    let mut current_version = repository_data.head_version();
+    let mut printed_version_count = 0;
+    let mut more_versions_off_screen = false;
+    let mut versions_to_print: Vec<&Version> = Vec::new();
+
+    loop {
+        printed_version_count += 1;
+
+        if printed_version_count > MAX_VERSIONS_TO_PRINT && !all {
+            more_versions_off_screen = true;
+            break;
+        }
+
+        versions_to_print.push(current_version);
+
+        current_version = match current_version.parent {
+            Some(parent) => repository_data.version(&parent).expect("The parent version must exist."),
+            None => break,
+        };
+    }
+
+    versions_to_print.reverse();
+
+    if more_versions_off_screen {
+        println!("...");
+    }
+
+    for version in &versions_to_print {
         let nickname_padding = nickname::max_length() + 1;
 
         let branch_badge = match repository_data.branch_on_version(&version.id) {
