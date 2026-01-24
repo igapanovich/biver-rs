@@ -2,7 +2,7 @@ use crate::version_id::VersionId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepositoryData {
     pub head: VersionId,
     pub versions: Vec<Version>,
@@ -18,7 +18,7 @@ impl RepositoryData {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Version {
     pub id: VersionId,
     pub creation_time: DateTime<Utc>,
