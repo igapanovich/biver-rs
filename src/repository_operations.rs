@@ -1,4 +1,4 @@
-use crate::hash;
+use crate::{hash, nickname};
 use crate::repository_context::RepositoryContext;
 use crate::repository_data::{RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
@@ -97,6 +97,7 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<RepositoryData>, 
     let new_version = Version {
         id: new_version_id,
         creation_time: Utc::now(),
+        nickname: nickname::new_nickname(xxh3_128),
         versioned_file_xxh3_128: xxh3_128,
         description,
         parent: data.as_ref().map(|data| data.head),

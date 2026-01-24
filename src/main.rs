@@ -9,6 +9,7 @@ mod repository_data;
 mod repository_operations;
 mod repository_paths;
 mod version_id;
+mod nickname;
 
 fn main() -> Result<(), std::io::Error> {
     let cli_arguments = CliArguments::parse();
