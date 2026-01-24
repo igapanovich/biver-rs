@@ -10,6 +10,8 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::{fs, io};
 
+const DEFAULT_BRANCH: &str = "main";
+
 pub enum RepositoryContextResult {
     Initialized(RepositoryContext),
     NotInitialized(RepositoryPaths),
@@ -62,23 +64,24 @@ pub enum CommitResult {
     Ok,
     NothingToCommit,
     BranchRequired,
+    BranchAlreadyExists,
 }
 
-pub fn commit_initial_version(paths: &RepositoryPaths, branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+pub fn commit_initial_version(paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
     if !fs::exists(&paths.repository_dir)? {
         fs::create_dir(&paths.repository_dir)?;
     } else if fs::exists(&paths.data_file)? {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, "The data file already exists."));
     }
 
-    commit_version_common(paths, None, branch, description)
+    commit_version_common(paths, None, new_branch, description)
 }
 
-pub fn commit_version(repo: &RepositoryContext, branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
-    commit_version_common(&repo.paths, Some(&repo.data), branch, description)
+pub fn commit_version(repo: &RepositoryContext, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+    commit_version_common(&repo.paths, Some(&repo.data), new_branch, description)
 }
 
-fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
     let versioned_file = File::open(&paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -89,12 +92,20 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>,
         return Ok(CommitResult::NothingToCommit);
     }
 
-    let branch = match (branch, data) {
-        (Some(branch), _) => branch,
-        (None, None) => "main",
-        (None, Some(RepositoryData { head: Head::Branch(branch), .. })) => branch,
-        (None, Some(RepositoryData { head: Head::Version(_), .. })) => return Ok(CommitResult::BranchRequired),
+    let branch = match new_branch {
+        Some(new_branch) => new_branch,
+        None => match data {
+            None => DEFAULT_BRANCH,
+            Some(RepositoryData { head: Head::Branch(branch), .. }) => branch,
+            Some(RepositoryData { head: Head::Version(_), .. }) => return Ok(CommitResult::BranchRequired),
+        },
     };
+
+    if let Some(data) = &data
+        && data.branches.contains_key(branch)
+    {
+        return Ok(CommitResult::BranchAlreadyExists);
+    }
 
     let new_version_id = VersionId::new();
 

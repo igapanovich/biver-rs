@@ -27,6 +27,8 @@ fn main() -> io::Result<ExitCode> {
                 RepositoryContextResult::NotInitialized(_) => println!("Not initialized"),
                 RepositoryContextResult::Initialized(repository_data) => print_repository_data(&repository_data, all)?,
             }
+
+            Ok(ExitCode::SUCCESS)
         }
 
         Commands::Commit {
@@ -43,11 +45,21 @@ fn main() -> io::Result<ExitCode> {
             };
 
             match result {
-                CommitResult::Ok => println!("{}", "OK".green()),
-                CommitResult::NothingToCommit => println!("{}", "Nothing to commit".yellow()),
+                CommitResult::Ok => {
+                    println!("{}", "OK".green());
+                    Ok(ExitCode::SUCCESS)
+                }
+                CommitResult::NothingToCommit => {
+                    println!("{}", "Nothing to commit".yellow());
+                    Ok(ExitCode::SUCCESS)
+                }
                 CommitResult::BranchRequired => {
                     println!("{}", "Branch required".red());
-                    return Ok(ExitCode::FAILURE);
+                    Ok(ExitCode::FAILURE)
+                }
+                CommitResult::BranchAlreadyExists => {
+                    println!("{}", "Branch already exists".red());
+                    Ok(ExitCode::FAILURE)
                 }
             }
         }
@@ -79,10 +91,10 @@ fn main() -> io::Result<ExitCode> {
             }
 
             repository_operations::discard(&repository_context)?;
+
+            Ok(ExitCode::SUCCESS)
         }
     }
-
-    Ok(ExitCode::SUCCESS)
 }
 
 const MAX_VERSIONS_TO_PRINT: usize = 20;
