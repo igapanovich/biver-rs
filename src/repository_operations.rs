@@ -9,11 +9,20 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::{fs, io};
 
-pub fn init_and_get_repository_context(versioned_file_path: &PathBuf) -> Result<RepositoryContext, io::Error> {
+pub enum RepositoryContextResult {
+    Initialized(RepositoryContext),
+    NotInitialized(RepositoryPaths),
+}
+
+pub fn repository_context(versioned_file_path: &PathBuf) -> Result<RepositoryContextResult, io::Error> {
     let versioned_file_path = fs::canonicalize(versioned_file_path)?;
     let paths = repository_paths(versioned_file_path);
-    let data = init_and_read_repository_data(&paths)?;
-    Ok(RepositoryContext { paths, data })
+    let data = repository_data(&paths)?;
+
+    match data {
+        Some(data) => Ok(RepositoryContextResult::Initialized(RepositoryContext { paths, data })),
+        None => Ok(RepositoryContextResult::NotInitialized(paths)),
+    }
 }
 
 fn repository_paths(versioned_file_path: PathBuf) -> RepositoryPaths {
@@ -37,26 +46,15 @@ fn repository_paths(versioned_file_path: PathBuf) -> RepositoryPaths {
     }
 }
 
-fn init_and_read_repository_data(repository_paths: &RepositoryPaths) -> Result<RepositoryData, io::Error> {
-    if !repository_paths.repository_dir.exists() {
-        fs::create_dir(&repository_paths.repository_dir)?;
+fn repository_data(repository_paths: &RepositoryPaths) -> Result<Option<RepositoryData>, io::Error> {
+    if !repository_paths.data_file.exists() {
+        return Ok(None);
     }
 
-    let repository_data = if !repository_paths.data_file.exists() {
-        let repository_data = initial_repository_data();
-        let data_file_contents = serde_json::to_string_pretty(&repository_data)?;
-        fs::write(&repository_paths.data_file, data_file_contents)?;
-        repository_data
-    } else {
-        let data_file_contents = fs::read(&repository_paths.data_file)?;
-        serde_json::from_slice(&data_file_contents)?
-    };
+    let data_file_contents = fs::read(&repository_paths.data_file)?;
+    let repository_data = serde_json::from_slice(&data_file_contents)?;
 
     Ok(repository_data)
-}
-
-fn initial_repository_data() -> RepositoryData {
-    RepositoryData { head: None, versions: vec![] }
 }
 
 pub enum CommitResult {
@@ -64,42 +62,61 @@ pub enum CommitResult {
     NothingToCommit,
 }
 
-pub fn commit_version(mut repo: RepositoryContext, description: String) -> Result<CommitResult, io::Error> {
-    if repo.data.head.is_none() && !repo.data.versions.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::Other, "Only the initial version can have no parent."));
+pub fn commit_initial_version(paths: &RepositoryPaths, description: String) -> Result<CommitResult, io::Error> {
+    if !fs::exists(&paths.repository_dir)? {
+        fs::create_dir(&paths.repository_dir)?;
+    } else if fs::exists(&paths.data_file)? {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "The data file already exists."));
     }
 
-    let versioned_file = File::open(&repo.paths.versioned_file)?;
+    commit_version_common(paths, None, description)
+}
+
+pub fn commit_version(repo: RepositoryContext, description: String) -> Result<CommitResult, io::Error> {
+    commit_version_common(&repo.paths, Some(repo.data), description)
+}
+
+fn commit_version_common(paths: &RepositoryPaths, data: Option<RepositoryData>, description: String) -> Result<CommitResult, io::Error> {
+    let versioned_file = File::open(&paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
 
-    if let Some(head) = repo.data.head_version().as_ref() {
-        if head.versioned_file_xxh3_128 == xxh3_128 {
-            return Ok(CommitResult::NothingToCommit);
-        }
+    if let Some(data) = &data
+        && data.head_version().versioned_file_xxh3_128 == xxh3_128
+    {
+        return Ok(CommitResult::NothingToCommit);
     }
 
     let new_version_id = VersionId::new();
 
     let blob_file_name = new_version_id.to_file_name();
-    let blob_file_path = repo.paths.repository_dir.join(&blob_file_name);
+    let blob_file_path = paths.repository_dir.join(&blob_file_name);
 
-    fs::copy(&repo.paths.versioned_file, blob_file_path)?;
+    fs::copy(&paths.versioned_file, blob_file_path)?;
 
     let new_version = Version {
         id: new_version_id,
         creation_time: Utc::now(),
         versioned_file_xxh3_128: xxh3_128,
         description,
-        parent: repo.data.head.clone(),
+        parent: data.as_ref().map(|data| data.head),
         blob_file_name,
     };
 
-    repo.data.head = Some(new_version.id.clone());
-    repo.data.versions.push(new_version);
+    let data = match data {
+        Some(mut data) => {
+            data.head = new_version.id;
+            data.versions.push(new_version);
+            data
+        }
+        None => RepositoryData {
+            head: new_version.id,
+            versions: vec![new_version],
+        },
+    };
 
-    let new_data_file_content = serde_json::to_string_pretty(&repo.data)?;
-    fs::write(&repo.paths.data_file, new_data_file_content)?;
+    let new_data_file_content = serde_json::to_string_pretty(&data)?;
+    fs::write(&paths.data_file, new_data_file_content)?;
 
     Ok(CommitResult::Ok)
 }
