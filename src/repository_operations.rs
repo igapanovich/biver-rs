@@ -15,7 +15,7 @@ pub enum RepositoryContextResult {
     NotInitialized(RepositoryPaths),
 }
 
-pub fn repository_context(versioned_file_path: &PathBuf) -> Result<RepositoryContextResult, io::Error> {
+pub fn repository_context(versioned_file_path: &PathBuf) -> io::Result<RepositoryContextResult> {
     let versioned_file_path = fs::canonicalize(versioned_file_path)?;
     let paths = repository_paths(versioned_file_path);
     let data = repository_data(&paths)?;
@@ -47,7 +47,7 @@ fn repository_paths(versioned_file_path: PathBuf) -> RepositoryPaths {
     }
 }
 
-fn repository_data(repository_paths: &RepositoryPaths) -> Result<Option<RepositoryData>, io::Error> {
+fn repository_data(repository_paths: &RepositoryPaths) -> io::Result<Option<RepositoryData>> {
     if !repository_paths.data_file.exists() {
         return Ok(None);
     }
@@ -64,7 +64,7 @@ pub enum CommitResult {
     BranchRequired,
 }
 
-pub fn commit_initial_version(paths: &RepositoryPaths, branch: Option<&str>, description: &str) -> Result<CommitResult, io::Error> {
+pub fn commit_initial_version(paths: &RepositoryPaths, branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
     if !fs::exists(&paths.repository_dir)? {
         fs::create_dir(&paths.repository_dir)?;
     } else if fs::exists(&paths.data_file)? {
@@ -74,11 +74,11 @@ pub fn commit_initial_version(paths: &RepositoryPaths, branch: Option<&str>, des
     commit_version_common(paths, None, branch, description)
 }
 
-pub fn commit_version(repo: &RepositoryContext, branch: Option<&str>, description: &str) -> Result<CommitResult, io::Error> {
+pub fn commit_version(repo: &RepositoryContext, branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
     commit_version_common(&repo.paths, Some(&repo.data), branch, description)
 }
 
-fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, branch: Option<&str>, description: &str) -> Result<CommitResult, io::Error> {
+fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
     let versioned_file = File::open(&paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -134,4 +134,12 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>,
     fs::write(&paths.data_file, new_data_file_content)?;
 
     Ok(CommitResult::Ok)
+}
+
+pub fn has_uncommitted_changes(repo: &RepositoryContext) -> io::Result<bool> {
+    let versioned_file = File::open(&repo.paths.versioned_file)?;
+
+    let current_xxh3_128 = hash::xxh3_128(&versioned_file)?;
+
+    Ok(repo.data.head_version().versioned_file_xxh3_128 != current_xxh3_128)
 }
