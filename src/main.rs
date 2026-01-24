@@ -1,8 +1,10 @@
 use crate::cli_arguments::{CliArguments, Commands};
-use crate::repository_data::{RepositoryData, Version};
+use crate::repository_context::RepositoryContext;
+use crate::repository_data::Version;
 use crate::repository_operations::{CommitResult, RepositoryContextResult};
 use clap::Parser;
 use colored::Colorize;
+use std::io;
 use std::process::ExitCode;
 
 mod cli_arguments;
@@ -14,7 +16,7 @@ mod repository_operations;
 mod repository_paths;
 mod version_id;
 
-fn main() -> Result<ExitCode, std::io::Error> {
+fn main() -> io::Result<ExitCode> {
     let cli_arguments = CliArguments::parse();
 
     match cli_arguments.command {
@@ -23,7 +25,7 @@ fn main() -> Result<ExitCode, std::io::Error> {
 
             match repository_context {
                 RepositoryContextResult::NotInitialized(_) => println!("Not initialized"),
-                RepositoryContextResult::Initialized(repository_data) => print_repository_data(&repository_data.data, all),
+                RepositoryContextResult::Initialized(repository_data) => print_repository_data(&repository_data, all)?,
             }
         }
 
@@ -56,8 +58,8 @@ fn main() -> Result<ExitCode, std::io::Error> {
 
 const MAX_VERSIONS_TO_PRINT: usize = 20;
 
-fn print_repository_data(repository_data: &RepositoryData, all: bool) {
-    let mut current_version = repository_data.head_version();
+fn print_repository_data(repo: &RepositoryContext, all: bool) -> io::Result<()> {
+    let mut current_version = repo.data.head_version();
     let mut printed_version_count = 0;
     let mut more_versions_off_screen = false;
     let mut versions_to_print: Vec<&Version> = Vec::new();
@@ -73,7 +75,7 @@ fn print_repository_data(repository_data: &RepositoryData, all: bool) {
         versions_to_print.push(current_version);
 
         current_version = match current_version.parent {
-            Some(parent) => repository_data.version(&parent).expect("The parent version must exist."),
+            Some(parent) => repo.data.version(&parent).expect("The parent version must exist."),
             None => break,
         };
     }
@@ -87,12 +89,12 @@ fn print_repository_data(repository_data: &RepositoryData, all: bool) {
     for version in &versions_to_print {
         let nickname_padding = nickname::max_length() + 1;
 
-        let branch_badge = match repository_data.branch_on_version(&version.id) {
+        let branch_badge = match repo.data.branch_on_version(&version.id) {
             Some(branch) => format!("[{}] ", branch),
             None => "".to_string(),
         };
 
-        let head_badge = if repository_data.head_version().id == version.id { "[HEAD] " } else { "" };
+        let head_badge = if repo.data.head_version().id == version.id { "[HEAD] " } else { "" };
 
         println!(
             "{:<21}{:<nickname_padding$}{}{}{}",
@@ -103,4 +105,10 @@ fn print_repository_data(repository_data: &RepositoryData, all: bool) {
             version.description.green()
         );
     }
+
+    if repository_operations::has_uncommitted_changes(&repo)? {
+        println!("{:<21}{}", "", "(uncommitted changes)".yellow());
+    }
+
+    Ok(())
 }
