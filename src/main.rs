@@ -51,6 +51,35 @@ fn main() -> io::Result<ExitCode> {
                 }
             }
         }
+
+        Commands::Discard { versioned_file_path, confirmed } => {
+            let repository_context = repository_operations::repository_context(&versioned_file_path)?;
+
+            let repository_context = match repository_context {
+                RepositoryContextResult::NotInitialized(_) => {
+                    println!("{}", "Not initialized".yellow());
+                    return Ok(ExitCode::SUCCESS);
+                }
+                RepositoryContextResult::Initialized(repository_context) => repository_context,
+            };
+
+            if !repository_operations::has_uncommitted_changes(&repository_context)? {
+                println!("{}", "No uncommitted changes".yellow());
+                return Ok(ExitCode::SUCCESS);
+            }
+
+            if !confirmed {
+                println!("Are you sure you want to discard uncommitted changes? (y/N)");
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let confirmed = input.trim().eq_ignore_ascii_case("y");
+                if !confirmed {
+                    return Ok(ExitCode::SUCCESS);
+                }
+            }
+
+            repository_operations::discard(&repository_context)?;
+        }
     }
 
     Ok(ExitCode::SUCCESS)

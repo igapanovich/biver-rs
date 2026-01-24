@@ -34,4 +34,14 @@ pub enum Commands {
         #[arg(value_name = "DESCRIPTION")]
         description: Option<String>,
     },
+
+    /// Discard uncommitted changes
+    Discard {
+        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        versioned_file_path: PathBuf,
+
+        /// Do not ask for confirmation
+        #[arg(short = 'y', long = "yes")]
+        confirmed: bool,
+    },
 }

@@ -143,3 +143,10 @@ pub fn has_uncommitted_changes(repo: &RepositoryContext) -> io::Result<bool> {
 
     Ok(repo.data.head_version().versioned_file_xxh3_128 != current_xxh3_128)
 }
+
+pub fn discard(repo: &RepositoryContext) -> io::Result<()> {
+    let head_version = repo.data.head_version();
+    let head_blob_file_path = repo.paths.repository_dir.join(&head_version.blob_file_name);
+    fs::copy(&head_blob_file_path, &repo.paths.versioned_file)?;
+    Ok(())
+}
