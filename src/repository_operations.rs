@@ -1,8 +1,8 @@
-use crate::{hash, nickname};
 use crate::repository_context::RepositoryContext;
 use crate::repository_data::{RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
+use crate::{hash, nickname};
 use chrono::Utc;
 use std::ffi::OsString;
 use std::fs::File;
@@ -62,7 +62,7 @@ pub enum CommitResult {
     NothingToCommit,
 }
 
-pub fn commit_initial_version(paths: &RepositoryPaths, description: String) -> Result<CommitResult, io::Error> {
+pub fn commit_initial_version(paths: &RepositoryPaths, description: &str) -> Result<CommitResult, io::Error> {
     if !fs::exists(&paths.repository_dir)? {
         fs::create_dir(&paths.repository_dir)?;
     } else if fs::exists(&paths.data_file)? {
@@ -72,11 +72,11 @@ pub fn commit_initial_version(paths: &RepositoryPaths, description: String) -> R
     commit_version_common(paths, None, description)
 }
 
-pub fn commit_version(repo: RepositoryContext, description: String) -> Result<CommitResult, io::Error> {
-    commit_version_common(&repo.paths, Some(repo.data), description)
+pub fn commit_version(repo: &RepositoryContext, description: &str) -> Result<CommitResult, io::Error> {
+    commit_version_common(&repo.paths, Some(&repo.data), description)
 }
 
-fn commit_version_common(paths: &RepositoryPaths, data: Option<RepositoryData>, description: String) -> Result<CommitResult, io::Error> {
+fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, description: &str) -> Result<CommitResult, io::Error> {
     let versioned_file = File::open(&paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -99,13 +99,14 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<RepositoryData>, 
         creation_time: Utc::now(),
         nickname: nickname::new_nickname(xxh3_128),
         versioned_file_xxh3_128: xxh3_128,
-        description,
+        description: description.to_string(),
         parent: data.as_ref().map(|data| data.head),
         blob_file_name,
     };
 
     let data = match data {
-        Some(mut data) => {
+        Some(data) => {
+            let mut data = data.clone();
             data.head = new_version.id;
             data.versions.push(new_version);
             data

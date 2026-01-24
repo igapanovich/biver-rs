@@ -9,6 +9,11 @@ pub struct CliArguments {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Show the current status of the repository
+    Status {
+        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        versioned_file_path: PathBuf,
+    },
     /// Commit current changes to a new version
     Commit {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
