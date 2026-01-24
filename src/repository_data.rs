@@ -1,10 +1,10 @@
 use crate::version_id::VersionId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RepositoryData {
     pub head: Head,
     pub branches: HashMap<String, VersionId>,
@@ -32,6 +32,36 @@ impl RepositoryData {
         self.branches
             .iter()
             .find_map(|(branch, version)| if version == version_id { Some(branch.deref()) } else { None })
+    }
+
+    pub fn valid(&self) -> bool {
+        let there_is_exactly_one_root = self.versions.iter().filter(|v| v.parent.is_none()).count() == 1;
+
+        let there_are_no_invalid_parent_references = self.versions.iter().all(|v| {
+            if let Some(parent) = &v.parent {
+                self.versions.iter().any(|v2| v2.id == *parent)
+            } else {
+                true
+            }
+        });
+
+        let head_reference_is_valid = match &self.head {
+            Head::Branch(branch) => self.branches.contains_key(branch),
+            Head::Version(version_id) => self.versions.iter().any(|v| v.id == *version_id),
+        };
+
+        let all_branches_reference_valid_versions = self.branches.values().all(|branch_version_id| self.versions.iter().any(|v| v.id == *branch_version_id));
+
+        let no_two_branches_reference_the_same_version = {
+            let distinct_branch_values: HashSet<&VersionId> = self.branches.values().collect();
+            self.branches.values().count() == distinct_branch_values.len()
+        };
+
+        there_is_exactly_one_root
+            && there_are_no_invalid_parent_references
+            && head_reference_is_valid
+            && all_branches_reference_valid_versions
+            && no_two_branches_reference_the_same_version
     }
 }
 

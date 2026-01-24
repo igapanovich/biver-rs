@@ -1,5 +1,5 @@
-use crate::repository_context::RepositoryContext;
 use crate::repository_data::{Head, RepositoryData, Version};
+use crate::repository_operations::RepositoryDataResult::{Initialized, NotInitialized};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
 use crate::{hash, nickname};
@@ -12,23 +12,7 @@ use std::{fs, io};
 
 const DEFAULT_BRANCH: &str = "main";
 
-pub enum RepositoryContextResult {
-    Initialized(RepositoryContext),
-    NotInitialized(RepositoryPaths),
-}
-
-pub fn repository_context(versioned_file_path: &PathBuf) -> io::Result<RepositoryContextResult> {
-    let versioned_file_path = fs::canonicalize(versioned_file_path)?;
-    let paths = repository_paths(versioned_file_path);
-    let data = repository_data(&paths)?;
-
-    match data {
-        Some(data) => Ok(RepositoryContextResult::Initialized(RepositoryContext { paths, data })),
-        None => Ok(RepositoryContextResult::NotInitialized(paths)),
-    }
-}
-
-fn repository_paths(versioned_file_path: PathBuf) -> RepositoryPaths {
+pub fn paths(versioned_file_path: PathBuf) -> RepositoryPaths {
     let extension = match versioned_file_path.extension() {
         Some(extension) => {
             let mut extension = OsString::from(extension);
@@ -49,15 +33,20 @@ fn repository_paths(versioned_file_path: PathBuf) -> RepositoryPaths {
     }
 }
 
-fn repository_data(repository_paths: &RepositoryPaths) -> io::Result<Option<RepositoryData>> {
+pub enum RepositoryDataResult {
+    Initialized(RepositoryData),
+    NotInitialized,
+}
+
+pub fn data(repository_paths: &RepositoryPaths) -> io::Result<RepositoryDataResult> {
     if !repository_paths.data_file.exists() {
-        return Ok(None);
+        return Ok(NotInitialized);
     }
 
     let data_file_contents = fs::read(&repository_paths.data_file)?;
     let repository_data = serde_json::from_slice(&data_file_contents)?;
 
-    Ok(repository_data)
+    Ok(Initialized(repository_data))
 }
 
 pub enum CommitResult {
@@ -67,52 +56,53 @@ pub enum CommitResult {
     BranchAlreadyExists,
 }
 
-pub fn commit_initial_version(paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
-    if !fs::exists(&paths.repository_dir)? {
-        fs::create_dir(&paths.repository_dir)?;
-    } else if fs::exists(&paths.data_file)? {
+pub fn commit_initial_version(repo_paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+    if !fs::exists(&repo_paths.repository_dir)? {
+        fs::create_dir(&repo_paths.repository_dir)?;
+    } else if fs::exists(&repo_paths.data_file)? {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, "The data file already exists."));
     }
 
-    commit_version_common(paths, None, new_branch, description)
+    commit_version_common(repo_paths, None, new_branch, description)
 }
 
-pub fn commit_version(repo: &RepositoryContext, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
-    commit_version_common(&repo.paths, Some(&repo.data), new_branch, description)
+pub fn commit_version(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+    commit_version_common(repo_paths, Some(repo_data), new_branch, description)
 }
 
-fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
-    let versioned_file = File::open(&paths.versioned_file)?;
+fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut RepositoryData>, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+    let versioned_file = File::open(&repo_paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
 
-    if let Some(data) = &data
-        && data.head_version().versioned_file_xxh3_128 == xxh3_128
+    if let Some(repo_data) = &repo_data
+        && repo_data.head_version().versioned_file_xxh3_128 == xxh3_128
     {
         return Ok(CommitResult::NothingToCommit);
     }
 
     let branch = match new_branch {
-        Some(new_branch) => new_branch,
-        None => match data {
-            None => DEFAULT_BRANCH,
-            Some(RepositoryData { head: Head::Branch(branch), .. }) => branch,
+        Some(new_branch) => {
+            if let Some(repo_data) = &repo_data
+                && repo_data.branches.contains_key(new_branch)
+            {
+                return Ok(CommitResult::BranchAlreadyExists);
+            }
+            new_branch.to_string()
+        }
+        None => match repo_data.as_ref() {
+            None => DEFAULT_BRANCH.to_string(),
+            Some(RepositoryData { head: Head::Branch(branch), .. }) => branch.to_string(),
             Some(RepositoryData { head: Head::Version(_), .. }) => return Ok(CommitResult::BranchRequired),
         },
     };
 
-    if let Some(data) = &data
-        && data.branches.contains_key(branch)
-    {
-        return Ok(CommitResult::BranchAlreadyExists);
-    }
-
     let new_version_id = VersionId::new();
 
     let blob_file_name = new_version_id.to_file_name();
-    let blob_file_path = paths.repository_dir.join(&blob_file_name);
+    let blob_file_path = repo_paths.repository_dir.join(&blob_file_name);
 
-    fs::copy(&paths.versioned_file, blob_file_path)?;
+    fs::copy(&repo_paths.versioned_file, blob_file_path)?;
 
     let new_version = Version {
         id: new_version_id,
@@ -120,44 +110,55 @@ fn commit_version_common(paths: &RepositoryPaths, data: Option<&RepositoryData>,
         nickname: nickname::new_nickname(xxh3_128),
         versioned_file_xxh3_128: xxh3_128,
         description: description.to_string(),
-        parent: data.as_ref().map(|data| data.head_version().id),
+        parent: repo_data.as_ref().map(|data| data.head_version().id),
         blob_file_name,
     };
 
     let new_head = Head::Branch(branch.to_string());
 
-    let data = match data {
-        Some(data) => {
-            let mut data = data.clone();
-            data.head = new_head;
-            data.versions.push(new_version);
-            data.branches.insert(branch.to_string(), new_version_id);
-            data
+    let mut owned_repo_data;
+    let repo_data = match repo_data {
+        Some(repo_data) => {
+            repo_data.head = new_head;
+            repo_data.versions.push(new_version);
+            repo_data.branches.insert(branch, new_version_id);
+            repo_data
         }
-        None => RepositoryData {
-            head: new_head,
-            versions: vec![new_version],
-            branches: HashMap::from([(branch.to_string(), new_version_id)]),
-        },
+        None => {
+            owned_repo_data = RepositoryData {
+                head: new_head,
+                versions: vec![new_version],
+                branches: HashMap::from([(branch, new_version_id)]),
+            };
+            &mut owned_repo_data
+        }
     };
 
-    let new_data_file_content = serde_json::to_string_pretty(&data)?;
-    fs::write(&paths.data_file, new_data_file_content)?;
+    write_data_file(&repo_data, repo_paths)?;
 
     Ok(CommitResult::Ok)
 }
 
-pub fn has_uncommitted_changes(repo: &RepositoryContext) -> io::Result<bool> {
-    let versioned_file = File::open(&repo.paths.versioned_file)?;
+pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> io::Result<bool> {
+    let versioned_file = File::open(&repo_paths.versioned_file)?;
 
     let current_xxh3_128 = hash::xxh3_128(&versioned_file)?;
 
-    Ok(repo.data.head_version().versioned_file_xxh3_128 != current_xxh3_128)
+    Ok(repo_data.head_version().versioned_file_xxh3_128 != current_xxh3_128)
 }
 
-pub fn discard(repo: &RepositoryContext) -> io::Result<()> {
-    let head_version = repo.data.head_version();
-    let head_blob_file_path = repo.paths.repository_dir.join(&head_version.blob_file_name);
-    fs::copy(&head_blob_file_path, &repo.paths.versioned_file)?;
+pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> io::Result<()> {
+    let head_version = repo_data.head_version();
+    let head_blob_file_path = repo_paths.repository_dir.join(&head_version.blob_file_name);
+    fs::copy(&head_blob_file_path, &repo_paths.versioned_file)?;
     Ok(())
+}
+
+fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> io::Result<()> {
+    if !data.valid() {
+        panic!("Repository data is not valid: {:#?}", data);
+    }
+
+    let data_file_content = serde_json::to_string_pretty(data)?;
+    fs::write(&paths.data_file, data_file_content)
 }

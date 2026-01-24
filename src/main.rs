@@ -1,7 +1,6 @@
 use crate::cli_arguments::{CliArguments, Commands};
-use crate::repository_context::RepositoryContext;
-use crate::repository_data::Version;
-use crate::repository_operations::{CommitResult, RepositoryContextResult};
+use crate::repository_data::{RepositoryData, Version};
+use crate::repository_operations::{CommitResult, RepositoryDataResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -10,7 +9,6 @@ use std::process::ExitCode;
 mod cli_arguments;
 mod hash;
 mod nickname;
-mod repository_context;
 mod repository_data;
 mod repository_operations;
 mod repository_paths;
@@ -21,11 +19,15 @@ fn main() -> io::Result<ExitCode> {
 
     match cli_arguments.command {
         Commands::Status { versioned_file_path, all } => {
-            let repository_context = repository_operations::repository_context(&versioned_file_path)?;
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let repo_data = repository_operations::data(&repo_paths)?;
 
-            match repository_context {
-                RepositoryContextResult::NotInitialized(_) => println!("Not initialized"),
-                RepositoryContextResult::Initialized(repository_data) => print_repository_data(&repository_data, all)?,
+            match repo_data {
+                RepositoryDataResult::NotInitialized => println!("Not initialized"),
+                RepositoryDataResult::Initialized(repository_data) => {
+                    let has_uncommitted_changes = repository_operations::has_uncommitted_changes(&repo_paths, &repository_data)?;
+                    print_repository_data(&repository_data, has_uncommitted_changes, all);
+                }
             }
 
             Ok(ExitCode::SUCCESS)
@@ -37,11 +39,12 @@ fn main() -> io::Result<ExitCode> {
             description,
         } => {
             let description = description.unwrap_or_default();
-            let repository_context = repository_operations::repository_context(&versioned_file_path)?;
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let repo_data = repository_operations::data(&repo_paths)?;
 
-            let result = match repository_context {
-                RepositoryContextResult::NotInitialized(repository_paths) => repository_operations::commit_initial_version(&repository_paths, branch.as_deref(), &description)?,
-                RepositoryContextResult::Initialized(repository_context) => repository_operations::commit_version(&repository_context, branch.as_deref(), &description)?,
+            let result = match repo_data {
+                RepositoryDataResult::NotInitialized => repository_operations::commit_initial_version(&repo_paths, branch.as_deref(), &description)?,
+                RepositoryDataResult::Initialized(mut repo_data) => repository_operations::commit_version(&repo_paths, &mut repo_data, branch.as_deref(), &description)?,
             };
 
             match result {
@@ -65,17 +68,18 @@ fn main() -> io::Result<ExitCode> {
         }
 
         Commands::Discard { versioned_file_path, confirmed } => {
-            let repository_context = repository_operations::repository_context(&versioned_file_path)?;
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let repo_data = repository_operations::data(&repo_paths)?;
 
-            let repository_context = match repository_context {
-                RepositoryContextResult::NotInitialized(_) => {
+            let repo_data = match repo_data {
+                RepositoryDataResult::NotInitialized => {
                     println!("{}", "Not initialized".yellow());
                     return Ok(ExitCode::SUCCESS);
                 }
-                RepositoryContextResult::Initialized(repository_context) => repository_context,
+                RepositoryDataResult::Initialized(repo_data) => repo_data,
             };
 
-            if !repository_operations::has_uncommitted_changes(&repository_context)? {
+            if !repository_operations::has_uncommitted_changes(&repo_paths, &repo_data)? {
                 println!("{}", "No uncommitted changes".yellow());
                 return Ok(ExitCode::SUCCESS);
             }
@@ -90,7 +94,7 @@ fn main() -> io::Result<ExitCode> {
                 }
             }
 
-            repository_operations::discard(&repository_context)?;
+            repository_operations::discard(&repo_paths, &repo_data)?;
 
             Ok(ExitCode::SUCCESS)
         }
@@ -99,8 +103,8 @@ fn main() -> io::Result<ExitCode> {
 
 const MAX_VERSIONS_TO_PRINT: usize = 20;
 
-fn print_repository_data(repo: &RepositoryContext, all: bool) -> io::Result<()> {
-    let mut current_version = repo.data.head_version();
+fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes: bool, all: bool) {
+    let mut current_version = repo_data.head_version();
     let mut printed_version_count = 0;
     let mut more_versions_off_screen = false;
     let mut versions_to_print: Vec<&Version> = Vec::new();
@@ -116,7 +120,7 @@ fn print_repository_data(repo: &RepositoryContext, all: bool) -> io::Result<()> 
         versions_to_print.push(current_version);
 
         current_version = match current_version.parent {
-            Some(parent) => repo.data.version(&parent).expect("The parent version must exist."),
+            Some(parent) => repo_data.version(&parent).expect("The parent version must exist."),
             None => break,
         };
     }
@@ -130,12 +134,12 @@ fn print_repository_data(repo: &RepositoryContext, all: bool) -> io::Result<()> 
     for version in &versions_to_print {
         let nickname_padding = nickname::max_length() + 1;
 
-        let branch_badge = match repo.data.branch_on_version(&version.id) {
+        let branch_badge = match repo_data.branch_on_version(&version.id) {
             Some(branch) => format!("[{}] ", branch),
             None => "".to_string(),
         };
 
-        let head_badge = if repo.data.head_version().id == version.id { "[HEAD] " } else { "" };
+        let head_badge = if repo_data.head_version().id == version.id { "[HEAD] " } else { "" };
 
         println!(
             "{:<21}{:<nickname_padding$}{}{}{}",
@@ -147,9 +151,7 @@ fn print_repository_data(repo: &RepositoryContext, all: bool) -> io::Result<()> 
         );
     }
 
-    if repository_operations::has_uncommitted_changes(&repo)? {
+    if has_uncommitted_changes {
         println!("{:<21}{}", "", "(uncommitted changes)".yellow());
     }
-
-    Ok(())
 }
