@@ -22,6 +22,9 @@ pub enum Commands {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
         versioned_file_path: PathBuf,
 
+        #[arg(short = 'b', long = "branch")]
+        branch: Option<String>,
+
         #[arg(value_name = "DESCRIPTION")]
         description: Option<String>,
     },
