@@ -1,4 +1,4 @@
-use crate::repository_data::{RepositoryData, Version};
+use crate::repository_data::{Head, RepositoryData, Version};
 use chrono_humanize::HumanTime;
 use colored::Colorize;
 
@@ -33,13 +33,29 @@ pub fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes
 
     let mut formatted_versions = Vec::new();
 
-    for version in &versions_to_print {
-        let branch_badge = match repo_data.branch_on_version(&version.id) {
-            Some(branch) => format!("[{}] ", branch),
-            None => "".to_string(),
-        };
+    let (head_version_id, head_branch) = match &repo_data.head {
+        Head::Version(version_id) => (*version_id, None),
+        Head::Branch(branch) => (repo_data.branches[branch], Some(branch)),
+    };
 
-        let head_badge = if repo_data.head_version().id == version.id { "[HEAD] " } else { "" };
+    for version in &versions_to_print {
+        let version_branch = repo_data.branch_on_version(&version.id);
+
+        let (branch_badge, head_badge) = match (version_branch, head_branch) {
+            (Some(version_branch), Some(head_branch)) if version_branch == head_branch => {
+                let branch_badge = String::from("");
+                let head_badge = format!("[HEAD = {}] ", head_branch);
+                (branch_badge, head_badge)
+            }
+            _ => {
+                let branch_badge = match version_branch {
+                    Some(branch) => format!("[{}] ", branch),
+                    None => String::from(""),
+                };
+                let head_badge = if version.id == head_version_id { String::from("[HEAD] ") } else { String::from("") };
+                (branch_badge, head_badge)
+            }
+        };
 
         let creation_time_local = version.creation_time.with_timezone(&chrono::Local);
         let creation_time_humanized = HumanTime::from(creation_time_local);
@@ -52,10 +68,10 @@ pub fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes
             creation_time: creation_time_local.format("%Y-%m-%d %H:%M:%S").to_string(),
             creation_time_humanized,
             id: version.id.bs58(),
-            nickname: version.nickname.to_string(),
+            nickname: version.nickname.clone(),
             branch_badge,
-            head_badge: head_badge.to_string(),
-            description: version.description.to_string(),
+            head_badge,
+            description: version.description.clone(),
         })
     }
 
