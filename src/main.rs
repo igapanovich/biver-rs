@@ -1,4 +1,4 @@
-use crate::cli_arguments::{CliArguments, Commands, ListCommands};
+use crate::cli_arguments::{CliArguments, Command, ListCommand};
 use crate::repository_operations::{CheckOutResult, CommitResult, RepositoryDataResult};
 use clap::Parser;
 use colored::Colorize;
@@ -19,7 +19,7 @@ fn main() -> io::Result<ExitCode> {
     let cli_arguments = CliArguments::parse();
 
     match cli_arguments.command {
-        Commands::Status { versioned_file_path, all } => {
+        Command::Status { versioned_file_path, all } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let repo_data = repository_operations::data(&repo_paths)?;
 
@@ -34,8 +34,8 @@ fn main() -> io::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
 
-        Commands::List(list_commands) => match list_commands {
-            ListCommands::Branches { versioned_file_path } => {
+        Command::List(list_commands) => match list_commands {
+            ListCommand::Branches { versioned_file_path } => {
                 let repo_paths = repository_operations::paths(versioned_file_path);
                 let repo_data = repository_operations::data(&repo_paths)?;
 
@@ -50,7 +50,7 @@ fn main() -> io::Result<ExitCode> {
             }
         },
 
-        Commands::Commit {
+        Command::Commit {
             versioned_file_path,
             branch,
             description,
@@ -84,7 +84,7 @@ fn main() -> io::Result<ExitCode> {
             }
         }
 
-        Commands::Discard { versioned_file_path, confirmed } => {
+        Command::Discard { versioned_file_path, confirmed } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
                 return uninitialized();
@@ -110,7 +110,7 @@ fn main() -> io::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
 
-        Commands::Checkout { versioned_file_path, target } => {
+        Command::Checkout { versioned_file_path, target } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let RepositoryDataResult::Initialized(mut repo_data) = repository_operations::data(&repo_paths)? else {
                 return uninitialized();
@@ -134,7 +134,7 @@ fn main() -> io::Result<ExitCode> {
             }
         }
 
-        Commands::Dependencies => {
+        Command::Dependencies => {
             let xdelta3_ready = xdelta3::ready();
             print_utils::print_dependencies(xdelta3_ready);
             Ok(ExitCode::SUCCESS)
