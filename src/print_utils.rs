@@ -1,6 +1,6 @@
 use crate::repository_data::{Head, RepositoryData, Version};
 use chrono_humanize::HumanTime;
-use colored::Colorize;
+use colored::{ColoredString, Colorize};
 
 const MAX_VERSIONS_TO_PRINT: usize = 20;
 
@@ -108,11 +108,22 @@ struct FormattedVersion {
     description: String,
 }
 
-pub fn print_dependencies(xdelta3_ready: bool) {
-    let xdelta3_status = if xdelta3_ready { "ready".green() } else { "not found".yellow() };
+pub fn print_dependencies(xdelta3_ready: bool, image_magick_ready: bool) {
+    fn optional_dep_status(ready: bool) -> ColoredString {
+        if ready { "ready".green() } else { "not found".yellow() }
+    }
+
     println!(
-        "xdelta3: {:<10} (Optional) Used for storing version file content as patches, which reduces repository size on disk",
-        xdelta3_status
+        "{:<14}{:<10}{}",
+        "xdelta3",
+        optional_dep_status(xdelta3_ready),
+        "(Optional) Used for storing version file content as patches, which reduces repository size on disk"
+    );
+    println!(
+        "{:<14}{:<10}{}",
+        "ImageMagick",
+        optional_dep_status(image_magick_ready),
+        "(Optional) Used for creating version previews for image files"
     );
 }
 

@@ -14,6 +14,7 @@ mod repository_operations;
 mod repository_paths;
 mod version_id;
 mod xdelta3;
+mod image_magick;
 
 fn main() -> io::Result<ExitCode> {
     let cli_arguments = CliArguments::parse();
@@ -136,7 +137,8 @@ fn main() -> io::Result<ExitCode> {
 
         Command::Dependencies => {
             let xdelta3_ready = xdelta3::ready();
-            print_utils::print_dependencies(xdelta3_ready);
+            let image_magick_ready = image_magick::ready();
+            print_utils::print_dependencies(xdelta3_ready, image_magick_ready);
             Ok(ExitCode::SUCCESS)
         }
     }
