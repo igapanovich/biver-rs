@@ -45,7 +45,7 @@ pub enum Commands {
         confirmed: bool,
     },
 
-    ///Check out a specific branch or version. If a version nickname is specified, the latest version with that nickname will be checked out.
+    /// Check out a specific branch or version. If a version nickname is specified, the latest version with that nickname will be checked out.
     Checkout {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
         versioned_file_path: PathBuf,
@@ -53,4 +53,7 @@ pub enum Commands {
         /// Target branch or version to check out. May be one of the following (in order of precedence): branch name, version id, version nickname (adjective-noun, adjectivenoun, an).
         target: String,
     },
+
+    /// List dependencies and check their statuses
+    Dependencies,
 }
