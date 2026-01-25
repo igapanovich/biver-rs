@@ -7,6 +7,8 @@ use std::process::ExitCode;
 
 mod cli_arguments;
 mod hash;
+mod image_magick;
+mod known_file_types;
 mod nickname;
 mod print_utils;
 mod repository_data;
@@ -14,7 +16,6 @@ mod repository_operations;
 mod repository_paths;
 mod version_id;
 mod xdelta3;
-mod image_magick;
 
 fn main() -> io::Result<ExitCode> {
     let cli_arguments = CliArguments::parse();

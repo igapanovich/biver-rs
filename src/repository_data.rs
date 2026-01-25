@@ -86,8 +86,9 @@ pub struct Version {
     pub versioned_file_xxh3_128: u128,
     pub description: String,
     pub parent: Option<VersionId>,
-    pub blob_file_name: String,
-    pub blob_kind: BlobKind,
+    pub content_blob_file_name: String,
+    pub content_blob_kind: ContentBlobKind,
+    pub preview_blob_file_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +98,7 @@ pub enum Head {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BlobKind {
+pub enum ContentBlobKind {
     Full,
     Patch(VersionId),
 }
