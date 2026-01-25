@@ -24,8 +24,18 @@ pub enum Command {
     #[command(subcommand)]
     List(ListCommand),
 
+    /// Preview a version of the file
+    #[command(alias = "pv")]
+    Preview {
+        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        versioned_file_path: PathBuf,
+
+        /// Target branch or version to preview. May be one of the following (in order of precedence): branch name, version id, version nickname (adjective-noun, adjectivenoun, an).
+        target: String,
+    },
+
     /// Commit current changes to a new version
-    #[command(alias = "cm")]
+    #[command(alias = "ct")]
     Commit {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
         versioned_file_path: PathBuf,

@@ -1,15 +1,18 @@
+use crate::biver_result::BiverResult;
 use crate::cli_arguments::{CliArguments, Command, ListCommand};
-use crate::repository_operations::{CheckOutResult, CommitResult, RepositoryDataResult};
+use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
 use std::process::ExitCode;
 
+mod biver_result;
 mod cli_arguments;
 mod hash;
 mod image_magick;
 mod known_file_types;
 mod nickname;
+mod preview;
 mod print_utils;
 mod repository_data;
 mod repository_operations;
@@ -17,7 +20,7 @@ mod repository_paths;
 mod version_id;
 mod xdelta3;
 
-fn main() -> io::Result<ExitCode> {
+fn main() -> BiverResult<ExitCode> {
     let cli_arguments = CliArguments::parse();
 
     match cli_arguments.command {
@@ -51,6 +54,33 @@ fn main() -> io::Result<ExitCode> {
                 Ok(ExitCode::SUCCESS)
             }
         },
+
+        Command::Preview { versioned_file_path, target } => {
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
+                return uninitialized();
+            };
+
+            let result = repository_operations::preview(&repo_paths, &repo_data, &target)?;
+
+            match result {
+                PreviewResult::Ok(preview_file_path) => match preview::open_window(preview_file_path) {
+                    Ok(_) => Ok(ExitCode::SUCCESS),
+                    Err(e) => {
+                        println!("Failed to open preview window: {}", e);
+                        Ok(ExitCode::FAILURE)
+                    }
+                },
+                PreviewResult::NoPreviewAvailable => {
+                    println!("{}", "No preview available".red());
+                    Ok(ExitCode::FAILURE)
+                }
+                PreviewResult::InvalidTarget => {
+                    println!("{}", "Invalid target".red());
+                    Ok(ExitCode::FAILURE)
+                }
+            }
+        }
 
         Command::Commit {
             versioned_file_path,
@@ -145,7 +175,7 @@ fn main() -> io::Result<ExitCode> {
     }
 }
 
-fn uninitialized() -> io::Result<ExitCode> {
+fn uninitialized() -> BiverResult<ExitCode> {
     println!("{}", "Not initialized".yellow());
     Ok(ExitCode::SUCCESS)
 }

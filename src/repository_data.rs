@@ -76,6 +76,10 @@ impl RepositoryData {
 
         versions_from_head_to_root
     }
+
+    pub fn branch_leaf(&self, branch: &str) -> Option<&Version> {
+        self.branches.get(branch).and_then(|version_id| self.version(*version_id))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

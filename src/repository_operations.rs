@@ -1,13 +1,14 @@
+use crate::biver_result::BiverResult;
 use crate::repository_data::{ContentBlobKind, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
-use crate::{hash, image_magick, known_file_types, nickname, xdelta3};
+use crate::{biver_result, hash, image_magick, known_file_types, nickname, xdelta3};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
-use std::{fs, io};
 
 const DEFAULT_BRANCH: &str = "main";
 
@@ -39,7 +40,7 @@ pub enum RepositoryDataResult {
     NotInitialized,
 }
 
-pub fn data(repository_paths: &RepositoryPaths) -> io::Result<RepositoryDataResult> {
+pub fn data(repository_paths: &RepositoryPaths) -> BiverResult<RepositoryDataResult> {
     if !repository_paths.data_file.exists() {
         return Ok(RepositoryDataResult::NotInitialized);
     }
@@ -57,21 +58,21 @@ pub enum CommitResult {
     BranchAlreadyExists,
 }
 
-pub fn commit_initial_version(repo_paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+pub fn commit_initial_version(repo_paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
     if !fs::exists(&repo_paths.repository_dir)? {
         fs::create_dir(&repo_paths.repository_dir)?;
     } else if fs::exists(&repo_paths.data_file)? {
-        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "The data file already exists."));
+        return biver_result::error("The data file already exists.");
     }
 
     commit_version_common(repo_paths, None, new_branch, description)
 }
 
-pub fn commit_version(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+pub fn commit_version(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
     commit_version_common(repo_paths, Some(repo_data), new_branch, description)
 }
 
-fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut RepositoryData>, new_branch: Option<&str>, description: &str) -> io::Result<CommitResult> {
+fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut RepositoryData>, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
     let versioned_file = File::open(&repo_paths.versioned_file)?;
 
     let xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -187,7 +188,7 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
     Ok(CommitResult::Ok)
 }
 
-pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> io::Result<bool> {
+pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<bool> {
     let versioned_file = File::open(&repo_paths.versioned_file)?;
 
     let current_xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -195,7 +196,7 @@ pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &Reposit
     Ok(repo_data.head_version().versioned_file_xxh3_128 != current_xxh3_128)
 }
 
-pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> io::Result<()> {
+pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<()> {
     let head_version = repo_data.head_version();
     set_versioned_file_to_version(repo_paths, repo_data, &head_version)?;
     Ok(())
@@ -207,7 +208,7 @@ pub enum CheckOutResult {
     InvalidTarget,
 }
 
-pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str) -> io::Result<CheckOutResult> {
+pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str) -> BiverResult<CheckOutResult> {
     let has_uncommitted_changes = has_uncommitted_changes(repo_paths, repo_data)?;
 
     if has_uncommitted_changes {
@@ -229,16 +230,40 @@ pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, t
     Ok(CheckOutResult::Ok)
 }
 
-fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> io::Result<()> {
+pub enum PreviewResult {
+    Ok(PathBuf),
+    NoPreviewAvailable,
+    InvalidTarget,
+}
+
+pub fn preview(repo_paths: &RepositoryPaths, repo_data: &RepositoryData, target: &str) -> BiverResult<PreviewResult> {
+    let version = match resolve_target(repo_data, target) {
+        TargetResult::Invalid => return Ok(PreviewResult::InvalidTarget),
+        TargetResult::Version(version) => version,
+        TargetResult::Branch(branch) => repo_data.branch_leaf(branch).expect("Branch resolved from target must exist"),
+    };
+
+    let Some(preview_blob_name) = &version.preview_blob_file_name else {
+        return Ok(PreviewResult::NoPreviewAvailable);
+    };
+
+    let preview_blob_path = repo_paths.repository_dir.join(&preview_blob_name);
+
+    Ok(PreviewResult::Ok(preview_blob_path))
+}
+
+fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResult<()> {
     if !data.valid() {
         panic!("Repository data is not valid: {:#?}", data);
     }
 
     let data_file_content = serde_json::to_string_pretty(data)?;
-    fs::write(&paths.data_file, data_file_content)
+    fs::write(&paths.data_file, data_file_content)?;
+
+    Ok(())
 }
 
-fn set_versioned_file_to_version(paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> io::Result<()> {
+fn set_versioned_file_to_version(paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> BiverResult<()> {
     let blob_path = paths.repository_dir.join(&version.content_blob_file_name);
 
     match version.content_blob_kind {
