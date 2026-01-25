@@ -149,9 +149,36 @@ pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &Reposit
 
 pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> io::Result<()> {
     let head_version = repo_data.head_version();
-    let head_blob_file_path = repo_paths.repository_dir.join(&head_version.blob_file_name);
-    fs::copy(&head_blob_file_path, &repo_paths.versioned_file)?;
+    set_versioned_file_to_version(repo_paths, &head_version)?;
     Ok(())
+}
+
+pub enum CheckOutResult {
+    Ok,
+    BlockedByUncommittedChanges,
+    InvalidTarget,
+}
+
+pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str) -> io::Result<CheckOutResult> {
+    let has_uncommitted_changes = has_uncommitted_changes(repo_paths, repo_data)?;
+
+    if has_uncommitted_changes {
+        return Ok(CheckOutResult::BlockedByUncommittedChanges);
+    }
+
+    let new_head = match resolve_target(repo_data, target) {
+        TargetResult::Invalid => return Ok(CheckOutResult::InvalidTarget),
+        TargetResult::Branch(branch) => Head::Branch(branch.to_string()),
+        TargetResult::Version(version) => Head::Version(version.id),
+    };
+
+    repo_data.head = new_head;
+    let new_head_version = repo_data.head_version();
+
+    write_data_file(repo_data, repo_paths)?;
+    set_versioned_file_to_version(repo_paths, new_head_version)?;
+
+    Ok(CheckOutResult::Ok)
 }
 
 fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> io::Result<()> {
@@ -161,4 +188,68 @@ fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> io::Result
 
     let data_file_content = serde_json::to_string_pretty(data)?;
     fs::write(&paths.data_file, data_file_content)
+}
+
+fn set_versioned_file_to_version(paths: &RepositoryPaths, version: &Version) -> io::Result<()> {
+    let blob_path = paths.repository_dir.join(&version.blob_file_name);
+    fs::copy(&blob_path, &paths.versioned_file)?;
+    Ok(())
+}
+
+enum TargetResult<'b, 'v> {
+    Branch(&'b str),
+    Version(&'v Version),
+    Invalid,
+}
+
+fn resolve_target<'b, 'v>(repo_data: &'v RepositoryData, target: &'b str) -> TargetResult<'b, 'v> {
+    if repo_data.branches.contains_key(target) {
+        return TargetResult::Branch(target);
+    }
+
+    let target_as_version_id = VersionId::from_bs58(target);
+
+    if let Some(target_as_version_id) = target_as_version_id {
+        let version = repo_data.versions.iter().find(|v| v.id == target_as_version_id);
+        if let Some(version) = version {
+            return TargetResult::Version(version);
+        }
+    }
+
+    let versions_from_head_to_root = repo_data.versions_from_head_to_root();
+    let version = versions_from_head_to_root.iter().find(|v| nickname_matches(&v.nickname, target));
+    if let Some(version) = version {
+        return TargetResult::Version(version);
+    }
+
+    TargetResult::Invalid
+}
+
+fn nickname_matches(nickname: &str, input: &str) -> bool {
+    if nickname.eq_ignore_ascii_case(input) {
+        return true;
+    }
+
+    let nickname_chars_without_dash = nickname.chars().filter(|c| c != &'-');
+
+    if nickname_chars_without_dash.eq(input.chars()) {
+        return true;
+    }
+
+    fn nickname_matches_initials(nickname: &str, input: &str) -> bool {
+        if input.len() != 2 {
+            return false;
+        }
+
+        let input_initials_first = input.chars().nth(0).unwrap();
+        let input_initials_second = input.chars().nth(1).unwrap();
+
+        let index_of_dash = nickname.find('-').unwrap();
+        let nickname_initials_first = nickname.chars().nth(0).unwrap();
+        let nickname_initials_second = nickname.chars().nth(index_of_dash + 1).unwrap();
+
+        input_initials_first == nickname_initials_first && input_initials_second == nickname_initials_second
+    }
+
+    nickname_matches_initials(nickname, input)
 }

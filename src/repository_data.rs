@@ -63,6 +63,19 @@ impl RepositoryData {
             && all_branches_reference_valid_versions
             && no_two_branches_reference_the_same_version
     }
+
+    pub fn versions_from_head_to_root(&self) -> Vec<&Version> {
+        let head_version = self.head_version();
+        let mut versions_from_head_to_root = vec![head_version];
+        let mut current_version = head_version;
+
+        while let Some(parent) = current_version.parent {
+            current_version = self.version(&parent).expect("The parent version must always exist.");
+            versions_from_head_to_root.push(current_version);
+        }
+
+        versions_from_head_to_root
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

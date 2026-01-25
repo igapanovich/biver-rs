@@ -1,6 +1,6 @@
 use crate::cli_arguments::{CliArguments, Commands};
 use crate::repository_data::{RepositoryData, Version};
-use crate::repository_operations::{CommitResult, RepositoryDataResult};
+use crate::repository_operations::{CheckOutResult, CommitResult, RepositoryDataResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -69,14 +69,8 @@ fn main() -> io::Result<ExitCode> {
 
         Commands::Discard { versioned_file_path, confirmed } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?;
-
-            let repo_data = match repo_data {
-                RepositoryDataResult::NotInitialized => {
-                    println!("{}", "Not initialized".yellow());
-                    return Ok(ExitCode::SUCCESS);
-                }
-                RepositoryDataResult::Initialized(repo_data) => repo_data,
+            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
+                return uninitialized();
             };
 
             if !repository_operations::has_uncommitted_changes(&repo_paths, &repo_data)? {
@@ -97,6 +91,30 @@ fn main() -> io::Result<ExitCode> {
             repository_operations::discard(&repo_paths, &repo_data)?;
 
             Ok(ExitCode::SUCCESS)
+        }
+
+        Commands::Checkout { versioned_file_path, target } => {
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let RepositoryDataResult::Initialized(mut repo_data) = repository_operations::data(&repo_paths)? else {
+                return uninitialized();
+            };
+
+            let result = repository_operations::check_out(&repo_paths, &mut repo_data, &target)?;
+
+            match result {
+                CheckOutResult::Ok => {
+                    println!("{}", "OK".green());
+                    Ok(ExitCode::SUCCESS)
+                }
+                CheckOutResult::BlockedByUncommittedChanges => {
+                    println!("{}", "Cannot check out because there are uncommitted changes".red());
+                    Ok(ExitCode::FAILURE)
+                }
+                CheckOutResult::InvalidTarget => {
+                    println!("{}", "Invalid target".red());
+                    Ok(ExitCode::FAILURE)
+                }
+            }
         }
     }
 }
@@ -155,4 +173,9 @@ fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes: bo
     if has_uncommitted_changes {
         println!("{:<21}{}", "", "(uncommitted changes)".yellow());
     }
+}
+
+fn uninitialized() -> io::Result<ExitCode> {
+    println!("{}", "Not initialized".yellow());
+    Ok(ExitCode::SUCCESS)
 }
