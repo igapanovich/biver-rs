@@ -1,4 +1,4 @@
-use crate::cli_arguments::{CliArguments, Commands};
+use crate::cli_arguments::{CliArguments, Commands, ListCommands};
 use crate::repository_operations::{CheckOutResult, CommitResult, RepositoryDataResult};
 use clap::Parser;
 use colored::Colorize;
@@ -33,6 +33,22 @@ fn main() -> io::Result<ExitCode> {
 
             Ok(ExitCode::SUCCESS)
         }
+
+        Commands::List(list_commands) => match list_commands {
+            ListCommands::Branches { versioned_file_path } => {
+                let repo_paths = repository_operations::paths(versioned_file_path);
+                let repo_data = repository_operations::data(&repo_paths)?;
+
+                match repo_data {
+                    RepositoryDataResult::NotInitialized => println!("Not initialized"),
+                    RepositoryDataResult::Initialized(repository_data) => {
+                        print_utils::print_branch_list(&repository_data);
+                    }
+                }
+
+                Ok(ExitCode::SUCCESS)
+            }
+        },
 
         Commands::Commit {
             versioned_file_path,

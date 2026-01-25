@@ -20,6 +20,10 @@ pub enum Commands {
         all: bool,
     },
 
+    /// List commands
+    #[command(subcommand)]
+    List(ListCommands),
+
     /// Commit current changes to a new version
     #[command(alias = "cm")]
     Commit {
@@ -56,4 +60,13 @@ pub enum Commands {
 
     /// List dependencies and check their statuses
     Dependencies,
+}
+
+#[derive(Subcommand)]
+pub enum ListCommands {
+    /// List branches
+    Branches {
+        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        versioned_file_path: PathBuf,
+    },
 }
