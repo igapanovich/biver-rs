@@ -1,5 +1,4 @@
 use crate::repository_data::{Head, RepositoryData, Version};
-use crate::repository_operations::RepositoryDataResult::{Initialized, NotInitialized};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
 use crate::{hash, nickname};
@@ -40,13 +39,13 @@ pub enum RepositoryDataResult {
 
 pub fn data(repository_paths: &RepositoryPaths) -> io::Result<RepositoryDataResult> {
     if !repository_paths.data_file.exists() {
-        return Ok(NotInitialized);
+        return Ok(RepositoryDataResult::NotInitialized);
     }
 
     let data_file_contents = fs::read(&repository_paths.data_file)?;
     let repository_data = serde_json::from_slice(&data_file_contents)?;
 
-    Ok(Initialized(repository_data))
+    Ok(RepositoryDataResult::Initialized(repository_data))
 }
 
 pub enum CommitResult {
