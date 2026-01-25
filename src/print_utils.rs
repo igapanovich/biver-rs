@@ -107,3 +107,11 @@ struct FormattedVersion {
     head_badge: String,
     description: String,
 }
+
+pub fn print_dependencies(xdelta3_ready: bool) {
+    let xdelta3_status = if xdelta3_ready { "ready".green() } else { "not found".yellow() };
+    println!(
+        "xdelta3: {:<10} (Optional) Used for storing version file content as patches, which reduces repository size on disk",
+        xdelta3_status
+    );
+}
