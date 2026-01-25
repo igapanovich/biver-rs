@@ -115,3 +115,9 @@ pub fn print_dependencies(xdelta3_ready: bool) {
         xdelta3_status
     );
 }
+
+pub fn print_branch_list(repo_data: &RepositoryData) {
+    for branch in repo_data.branches.keys() {
+        println!("{}", branch)
+    }
+}
