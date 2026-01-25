@@ -1,6 +1,7 @@
 use crate::cli_arguments::{CliArguments, Commands};
 use crate::repository_data::{RepositoryData, Version};
 use crate::repository_operations::{CheckOutResult, CommitResult, RepositoryDataResult};
+use chrono_humanize::HumanTime;
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -150,7 +151,7 @@ fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes: bo
     }
 
     for version in &versions_to_print {
-        let nickname_padding = nickname::max_length() + 1;
+        let nickname_padding = nickname::max_length();
 
         let branch_badge = match repo_data.branch_on_version(&version.id) {
             Some(branch) => format!("[{}] ", branch),
@@ -159,9 +160,13 @@ fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes: bo
 
         let head_badge = if repo_data.head_version().id == version.id { "[HEAD] " } else { "" };
 
+        let creation_time_local = version.creation_time.with_timezone(&chrono::Local);
+        let creation_time_humanized = HumanTime::from(creation_time_local);
+
         println!(
-            "{:<20}{} {:<nickname_padding$}{}{}{}",
-            version.creation_time.format("%Y-%m-%d %H:%M:%S").to_string().blue(),
+            "{} {:<19} {} {:<nickname_padding$} {}{}{}",
+            creation_time_local.format("%Y-%m-%d %H:%M:%S").to_string().blue(),
+            format!("({})", creation_time_humanized).bright_blue(),
             version.id.bs58().bright_black(),
             version.nickname.white(),
             branch_badge.bright_blue(),
