@@ -1,7 +1,7 @@
-use crate::repository_data::{Head, RepositoryData, Version};
+use crate::repository_data::{BlobKind, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
-use crate::{hash, nickname};
+use crate::{hash, nickname, xdelta3};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 const DEFAULT_BRANCH: &str = "main";
+
+const MAX_CONSECUTIVE_PATCHES: usize = 7;
 
 pub fn paths(versioned_file_path: PathBuf) -> RepositoryPaths {
     let extension = match versioned_file_path.extension() {
@@ -96,12 +98,41 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         },
     };
 
+    let (blob_kind, base_blob_file_name) = if !xdelta3::ready() {
+        (BlobKind::Full, "")
+    } else {
+        match repo_data.as_ref() {
+            None => (BlobKind::Full, ""),
+            Some(repo_data) => {
+                let ancestors = repo_data.head_ancestors();
+                let closest_full_ancestor_position = ancestors.iter().position(|v| v.blob_kind == BlobKind::Full);
+                match closest_full_ancestor_position {
+                    None => (BlobKind::Full, ""),
+                    Some(pos) if pos >= MAX_CONSECUTIVE_PATCHES => (BlobKind::Full, ""),
+                    Some(pos) => {
+                        let closest_full_ancestor = ancestors[pos];
+                        let blob_kind = BlobKind::Patch(closest_full_ancestor.id);
+                        (blob_kind, closest_full_ancestor.blob_file_name.as_str())
+                    }
+                }
+            }
+        }
+    };
+
     let new_version_id = VersionId::new();
 
     let blob_file_name = new_version_id.to_file_name();
     let blob_file_path = repo_paths.repository_dir.join(&blob_file_name);
 
-    fs::copy(&repo_paths.versioned_file, blob_file_path)?;
+    match blob_kind {
+        BlobKind::Full => {
+            fs::copy(&repo_paths.versioned_file, blob_file_path)?;
+        }
+        BlobKind::Patch(_) => {
+            let base_blob_file_path = repo_paths.repository_dir.join(&base_blob_file_name);
+            xdelta3::create_patch(base_blob_file_path.as_path(), &repo_paths.versioned_file, blob_file_path.as_path())?;
+        }
+    }
 
     let new_version = Version {
         id: new_version_id,
@@ -111,6 +142,7 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         description: description.to_string(),
         parent: repo_data.as_ref().map(|data| data.head_version().id),
         blob_file_name,
+        blob_kind,
     };
 
     let new_head = Head::Branch(branch.to_string());
@@ -148,7 +180,7 @@ pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &Reposit
 
 pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> io::Result<()> {
     let head_version = repo_data.head_version();
-    set_versioned_file_to_version(repo_paths, &head_version)?;
+    set_versioned_file_to_version(repo_paths, repo_data, &head_version)?;
     Ok(())
 }
 
@@ -175,7 +207,7 @@ pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, t
     let new_head_version = repo_data.head_version();
 
     write_data_file(repo_data, repo_paths)?;
-    set_versioned_file_to_version(repo_paths, new_head_version)?;
+    set_versioned_file_to_version(repo_paths, repo_data, new_head_version)?;
 
     Ok(CheckOutResult::Ok)
 }
@@ -189,9 +221,20 @@ fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> io::Result
     fs::write(&paths.data_file, data_file_content)
 }
 
-fn set_versioned_file_to_version(paths: &RepositoryPaths, version: &Version) -> io::Result<()> {
+fn set_versioned_file_to_version(paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> io::Result<()> {
     let blob_path = paths.repository_dir.join(&version.blob_file_name);
-    fs::copy(&blob_path, &paths.versioned_file)?;
+
+    match version.blob_kind {
+        BlobKind::Full => {
+            fs::copy(&blob_path, &paths.versioned_file)?;
+        }
+        BlobKind::Patch(base_version_id) => {
+            let base_version = data.version(base_version_id).expect("Version referenced by patch must exist");
+            let base_version_blob_path = paths.repository_dir.join(&base_version.blob_file_name);
+            xdelta3::apply_patch(base_version_blob_path.as_path(), blob_path.as_path(), &paths.versioned_file)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -215,8 +258,11 @@ fn resolve_target<'b, 'v>(repo_data: &'v RepositoryData, target: &'b str) -> Tar
         }
     }
 
-    let versions_from_head_to_root = repo_data.versions_from_head_to_root();
-    let version = versions_from_head_to_root.iter().find(|v| nickname_matches(&v.nickname, target));
+    let mut versions: Vec<_> = repo_data.versions.iter().collect();
+    versions.sort_by(|a, b| b.creation_time.cmp(&a.creation_time));
+
+    let version = versions.iter().find(|v| nickname_matches(&v.nickname, target));
+
     if let Some(version) = version {
         return TargetResult::Version(version);
     }
