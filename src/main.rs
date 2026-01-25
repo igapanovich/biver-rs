@@ -1,7 +1,5 @@
 use crate::cli_arguments::{CliArguments, Commands};
-use crate::repository_data::{RepositoryData, Version};
 use crate::repository_operations::{CheckOutResult, CommitResult, RepositoryDataResult};
-use chrono_humanize::HumanTime;
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -10,6 +8,7 @@ use std::process::ExitCode;
 mod cli_arguments;
 mod hash;
 mod nickname;
+mod print_utils;
 mod repository_data;
 mod repository_operations;
 mod repository_paths;
@@ -27,7 +26,7 @@ fn main() -> io::Result<ExitCode> {
                 RepositoryDataResult::NotInitialized => println!("Not initialized"),
                 RepositoryDataResult::Initialized(repository_data) => {
                     let has_uncommitted_changes = repository_operations::has_uncommitted_changes(&repo_paths, &repository_data)?;
-                    print_repository_data(&repository_data, has_uncommitted_changes, all);
+                    print_utils::print_repository_data(&repository_data, has_uncommitted_changes, all);
                 }
             }
 
@@ -117,66 +116,6 @@ fn main() -> io::Result<ExitCode> {
                 }
             }
         }
-    }
-}
-
-const MAX_VERSIONS_TO_PRINT: usize = 20;
-
-fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes: bool, all: bool) {
-    let mut current_version = repo_data.head_version();
-    let mut printed_version_count = 0;
-    let mut more_versions_off_screen = false;
-    let mut versions_to_print: Vec<&Version> = Vec::new();
-
-    loop {
-        printed_version_count += 1;
-
-        if printed_version_count > MAX_VERSIONS_TO_PRINT && !all {
-            more_versions_off_screen = true;
-            break;
-        }
-
-        versions_to_print.push(current_version);
-
-        current_version = match current_version.parent {
-            Some(parent) => repo_data.version(&parent).expect("The parent version must exist."),
-            None => break,
-        };
-    }
-
-    versions_to_print.reverse();
-
-    if more_versions_off_screen {
-        println!("...");
-    }
-
-    for version in &versions_to_print {
-        let nickname_padding = nickname::max_length();
-
-        let branch_badge = match repo_data.branch_on_version(&version.id) {
-            Some(branch) => format!("[{}] ", branch),
-            None => "".to_string(),
-        };
-
-        let head_badge = if repo_data.head_version().id == version.id { "[HEAD] " } else { "" };
-
-        let creation_time_local = version.creation_time.with_timezone(&chrono::Local);
-        let creation_time_humanized = HumanTime::from(creation_time_local);
-
-        println!(
-            "{} {:<19} {} {:<nickname_padding$} {}{}{}",
-            creation_time_local.format("%Y-%m-%d %H:%M:%S").to_string().blue(),
-            format!("({})", creation_time_humanized).bright_blue(),
-            version.id.bs58().bright_black(),
-            version.nickname.white(),
-            branch_badge.bright_blue(),
-            head_badge.magenta(),
-            version.description.green()
-        );
-    }
-
-    if has_uncommitted_changes {
-        println!("{:<21}{}", "", "(uncommitted changes)".yellow());
     }
 }
 

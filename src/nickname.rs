@@ -43,7 +43,3 @@ pub fn new_nickname(random_value: u128) -> String {
 
     format!("{}-{}", ADJECTIVES[adjective_index as usize], NOUNS[noun_index as usize])
 }
-
-pub fn max_length() -> usize {
-    ADJECTIVES.iter().map(|adjective| adjective.len()).max().unwrap() + NOUNS.iter().map(|noun| noun.len()).max().unwrap() + 1
-}
