@@ -4,11 +4,11 @@ use std::path::PathBuf;
 #[derive(Parser)]
 pub struct CliArguments {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Command,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub enum Command {
     /// Show the current status of the repository
     #[command(alias = "st")]
     Status {
@@ -22,7 +22,7 @@ pub enum Commands {
 
     /// List commands
     #[command(subcommand)]
-    List(ListCommands),
+    List(ListCommand),
 
     /// Commit current changes to a new version
     #[command(alias = "cm")]
@@ -63,7 +63,7 @@ pub enum Commands {
 }
 
 #[derive(Subcommand)]
-pub enum ListCommands {
+pub enum ListCommand {
     /// List branches
     Branches {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
