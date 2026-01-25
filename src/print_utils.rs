@@ -21,7 +21,7 @@ pub fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes
         versions_to_print.push(current_version);
 
         current_version = match current_version.parent {
-            Some(parent) => repo_data.version(&parent).expect("The parent version must exist."),
+            Some(parent) => repo_data.version(parent).expect("The parent version must exist."),
             None => break,
         };
     }
