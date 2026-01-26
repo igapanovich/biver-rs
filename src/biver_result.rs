@@ -16,7 +16,12 @@ pub enum BiverErrorSeverity {
 
 impl Display for BiverError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.error_message)
+        let severity = match self.severity {
+            BiverErrorSeverity::Error => "ERROR",
+            BiverErrorSeverity::Warning => "WARNING",
+        };
+
+        write!(f, "{}: {}", severity, self.error_message)
     }
 }
 
