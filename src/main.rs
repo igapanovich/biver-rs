@@ -1,5 +1,6 @@
 use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, warning};
 use crate::cli_arguments::{CliArguments, Command, ListCommand};
+use crate::repository_data::RepositoryData;
 use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, VersionResult};
 use clap::Parser;
 use colored::Colorize;
@@ -63,9 +64,7 @@ fn run_command(command: Command) -> BiverResult<()> {
 
         Command::List(ListCommand::Branches { versioned_file_path }) => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
-                return uninitialized();
-            };
+            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
             print_utils::print_branch_list(&repo_data);
 
@@ -74,20 +73,21 @@ fn run_command(command: Command) -> BiverResult<()> {
 
         Command::Preview { versioned_file_path, target } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
-                return uninitialized();
+            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+
+            let version = match repository_operations::version(&repo_data, &target) {
+                VersionResult::InvalidTarget => return error("Invalid target"),
+                VersionResult::Ok(version) => version,
             };
 
-            match repository_operations::version(&repo_data, &target) {
-                VersionResult::InvalidTarget => error("Invalid target"),
-                VersionResult::Ok(version) => match repository_operations::preview(&repo_paths, version) {
-                    PreviewResult::NoPreviewAvailable => error("No preview available"),
-                    PreviewResult::Ok(preview_file_path) => match viewer::show_preview(preview_file_path) {
-                        Ok(_) => success(),
-                        Err(_) => error("Failed to open preview window"),
-                    },
-                },
-            }
+            let preview_file_path = match repository_operations::preview(&repo_paths, version) {
+                PreviewResult::NoPreviewAvailable => return error("No preview available"),
+                PreviewResult::Ok(preview_file_path) => preview_file_path,
+            };
+
+            viewer::show_preview(preview_file_path)?;
+
+            Ok(())
         }
 
         Command::Compare {
@@ -96,9 +96,7 @@ fn run_command(command: Command) -> BiverResult<()> {
             target2,
         } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
-                return uninitialized();
-            };
+            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
             let version_and_preview = |target| match repository_operations::version(&repo_data, target) {
                 VersionResult::InvalidTarget => error(format!("Invalid target {}", target)),
@@ -144,9 +142,7 @@ fn run_command(command: Command) -> BiverResult<()> {
 
         Command::Discard { versioned_file_path, confirmed } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
-                return uninitialized();
-            };
+            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
             if !repository_operations::has_uncommitted_changes(&repo_paths, &repo_data)? {
                 return warning("No uncommitted changes");
@@ -154,9 +150,7 @@ fn run_command(command: Command) -> BiverResult<()> {
 
             if !confirmed {
                 println!("Are you sure you want to discard uncommitted changes? (y/N)");
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-                let confirmed = input.trim().eq_ignore_ascii_case("y");
+                let confirmed = read_yes_no_input()?;
                 if !confirmed {
                     return success();
                 }
@@ -169,9 +163,7 @@ fn run_command(command: Command) -> BiverResult<()> {
 
         Command::Checkout { versioned_file_path, target } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let RepositoryDataResult::Initialized(mut repo_data) = repository_operations::data(&repo_paths)? else {
-                return uninitialized();
-            };
+            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
             let result = repository_operations::check_out(&repo_paths, &mut repo_data, &target)?;
 
@@ -183,16 +175,10 @@ fn run_command(command: Command) -> BiverResult<()> {
         }
 
         Command::Dependencies => {
-            let xdelta3_ready = xdelta3::ready();
-            let image_magick_ready = image_magick::ready();
-            print_utils::print_dependencies(xdelta3_ready, image_magick_ready);
+            print_utils::print_dependencies(xdelta3::ready(), image_magick::ready());
             success()
         }
     }
-}
-
-fn uninitialized() -> BiverResult<()> {
-    warning("Not initialized")
 }
 
 fn success_ok() -> BiverResult<()> {
@@ -202,4 +188,26 @@ fn success_ok() -> BiverResult<()> {
 
 fn success() -> BiverResult<()> {
     Ok(())
+}
+
+fn read_yes_no_input() -> BiverResult<bool> {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().eq_ignore_ascii_case("y"))
+}
+
+trait RepositoryDataResultExtensions {
+    fn initialized(self) -> BiverResult<RepositoryData>;
+}
+
+impl RepositoryDataResultExtensions for RepositoryDataResult {
+    fn initialized(self) -> BiverResult<RepositoryData> {
+        match self {
+            RepositoryDataResult::NotInitialized => Err(BiverError {
+                error_message: "Not initialized".to_string(),
+                severity: BiverErrorSeverity::Error,
+            }),
+            RepositoryDataResult::Initialized(repository_data) => Ok(repository_data),
+        }
+    }
 }
