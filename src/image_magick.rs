@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 
 pub fn ready() -> bool {
-    let status = Command::new("magick").stdout(Stdio::null()).stderr(Stdio::null()).arg("-version").status();
+    let status = imagemagick_command().arg("-version").status();
     match status {
         Ok(status) => status.code() == Some(0),
         Err(_) => false,
@@ -15,7 +15,7 @@ pub fn create_preview(input: &Path, preview: &Path) -> io::Result<()> {
     let mut preview_with_prefix = OsString::from("jpg:");
     preview_with_prefix.push(preview);
 
-    let status = Command::new("magick")
+    let status = imagemagick_command()
         .arg(input)
         .arg("-flatten")
         .arg("-thumbnail")
@@ -34,4 +34,11 @@ fn map_imagemagick_status(status_result: io::Result<ExitStatus>) -> io::Result<(
             Err(io::Error::new(io::ErrorKind::Other, "ImageMagick failed."))
         }
     })
+}
+
+fn imagemagick_command() -> Command {
+    let mut command = Command::new("magick");
+    command.stdout(Stdio::null());
+    command.stderr(Stdio::null());
+    command
 }
