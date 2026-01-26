@@ -9,6 +9,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 const DEFAULT_BRANCH: &str = "main";
 
@@ -105,13 +106,13 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         match repo_data.as_ref() {
             None => (ContentBlobKind::Full, ""),
             Some(repo_data) => {
-                let ancestors = repo_data.head_ancestors();
-                let closest_full_ancestor_position = ancestors.iter().position(|v| v.content_blob_kind == ContentBlobKind::Full);
+                let head_and_ancestors = repo_data.head_and_ancestors();
+                let closest_full_ancestor_position = head_and_ancestors.iter().position(|v| v.content_blob_kind == ContentBlobKind::Full);
                 match closest_full_ancestor_position {
                     None => (ContentBlobKind::Full, ""),
                     Some(pos) if pos >= MAX_CONSECUTIVE_PATCHES => (ContentBlobKind::Full, ""),
                     Some(pos) => {
-                        let closest_full_ancestor = ancestors[pos];
+                        let closest_full_ancestor = head_and_ancestors[pos];
                         let blob_kind = ContentBlobKind::Patch(closest_full_ancestor.id);
                         (blob_kind, closest_full_ancestor.content_blob_file_name.as_str())
                     }
@@ -287,10 +288,16 @@ enum TargetResult<'b, 'v> {
 }
 
 fn resolve_target<'b, 'v>(repo_data: &'v RepositoryData, target: &'b str) -> TargetResult<'b, 'v> {
+    if target.is_empty() {
+        return TargetResult::Invalid;
+    }
+
+    // As branch name
     if repo_data.branches.contains_key(target) {
         return TargetResult::Branch(target);
     }
 
+    // As version ID
     let target_as_version_id = VersionId::from_bs58(target);
 
     if let Some(target_as_version_id) = target_as_version_id {
@@ -300,6 +307,23 @@ fn resolve_target<'b, 'v>(repo_data: &'v RepositoryData, target: &'b str) -> Tar
         }
     }
 
+    // As offset
+    if target == "~" {
+        return TargetResult::Version(repo_data.head_version());
+    }
+
+    if target.chars().nth(0) == Some('~')
+        && let Ok(offset) = usize::from_str(&target[1..])
+    {
+        let head_and_ancestors = repo_data.head_and_ancestors();
+        let target_version = head_and_ancestors.get(offset);
+        return match target_version {
+            None => TargetResult::Invalid,
+            Some(target_version) => TargetResult::Version(target_version),
+        };
+    }
+
+    // As version nickname
     let mut versions: Vec<_> = repo_data.versions.iter().collect();
     versions.sort_by(|a, b| b.creation_time.cmp(&a.creation_time));
 

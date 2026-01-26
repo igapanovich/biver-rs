@@ -64,7 +64,7 @@ impl RepositoryData {
             && no_two_branches_reference_the_same_version
     }
 
-    pub fn head_ancestors(&self) -> Vec<&Version> {
+    pub fn head_and_ancestors(&self) -> Vec<&Version> {
         let head_version = self.head_version();
         let mut versions_from_head_to_root = vec![head_version];
         let mut current_version = head_version;

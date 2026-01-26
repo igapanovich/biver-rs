@@ -30,7 +30,7 @@ pub enum Command {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
         versioned_file_path: PathBuf,
 
-        /// Target branch or version to preview. May be one of the following (in order of precedence): branch name, version id, version nickname (adjective-noun, adjectivenoun, an).
+        /// Target branch or version to preview. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
         target: String,
     },
 
@@ -64,7 +64,7 @@ pub enum Command {
         #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
         versioned_file_path: PathBuf,
 
-        /// Target branch or version to check out. May be one of the following (in order of precedence): branch name, version id, version nickname (adjective-noun, adjectivenoun, an).
+        /// Target branch or version to preview. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
         target: String,
     },
 
