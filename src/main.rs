@@ -1,6 +1,6 @@
-use crate::biver_result::BiverResult;
+use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, warning};
 use crate::cli_arguments::{CliArguments, Command, ListCommand};
-use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult};
+use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, VersionResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -12,18 +12,40 @@ mod hash;
 mod image_magick;
 mod known_file_types;
 mod nickname;
-mod preview;
 mod print_utils;
 mod repository_data;
 mod repository_operations;
 mod repository_paths;
 mod version_id;
+mod viewer;
 mod xdelta3;
 
-fn main() -> BiverResult<ExitCode> {
+fn main() -> ExitCode {
     let cli_arguments = CliArguments::parse();
 
-    match cli_arguments.command {
+    match run_command(cli_arguments.command) {
+        Ok(()) => ExitCode::SUCCESS,
+
+        Err(BiverError {
+            error_message,
+            severity: BiverErrorSeverity::Warning,
+        }) => {
+            println!("{}", error_message.yellow());
+            ExitCode::SUCCESS
+        }
+
+        Err(BiverError {
+            error_message,
+            severity: BiverErrorSeverity::Error,
+        }) => {
+            eprintln!("{}", error_message.red());
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_command(command: Command) -> BiverResult<()> {
+    match command {
         Command::Status { versioned_file_path, all } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let repo_data = repository_operations::data(&repo_paths)?;
@@ -36,21 +58,18 @@ fn main() -> BiverResult<ExitCode> {
                 }
             }
 
-            success("")
+            success()
         }
 
         Command::List(ListCommand::Branches { versioned_file_path }) => {
             let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?;
+            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
+                return uninitialized();
+            };
 
-            match repo_data {
-                RepositoryDataResult::NotInitialized => println!("Not initialized"),
-                RepositoryDataResult::Initialized(repository_data) => {
-                    print_utils::print_branch_list(&repository_data);
-                }
-            }
+            print_utils::print_branch_list(&repo_data);
 
-            success("")
+            success()
         }
 
         Command::Preview { versioned_file_path, target } => {
@@ -59,18 +78,46 @@ fn main() -> BiverResult<ExitCode> {
                 return uninitialized();
             };
 
-            let result = repository_operations::preview(&repo_paths, &repo_data, &target)?;
-
-            match result {
-                PreviewResult::Ok(preview_file_path) => match preview::open_window(preview_file_path) {
-                    Ok(_) => success(""),
-                    Err(_) => failure("Failed to open preview window"),
+            match repository_operations::version(&repo_data, &target) {
+                VersionResult::InvalidTarget => error("Invalid target"),
+                VersionResult::Ok(version) => match repository_operations::preview(&repo_paths, version) {
+                    PreviewResult::NoPreviewAvailable => error("No preview available"),
+                    PreviewResult::Ok(preview_file_path) => match viewer::show_preview(preview_file_path) {
+                        Ok(_) => success(),
+                        Err(_) => error("Failed to open preview window"),
+                    },
                 },
-                PreviewResult::NoPreviewAvailable => failure("No preview available"),
-                PreviewResult::InvalidTarget => failure("Invalid target"),
             }
         }
-            }
+
+        Command::Compare {
+            versioned_file_path,
+            target1,
+            target2,
+        } => {
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let RepositoryDataResult::Initialized(repo_data) = repository_operations::data(&repo_paths)? else {
+                return uninitialized();
+            };
+
+            let version_and_preview = |target| match repository_operations::version(&repo_data, target) {
+                VersionResult::InvalidTarget => error(format!("Invalid target {}", target)),
+                VersionResult::Ok(version) => match repository_operations::preview(&repo_paths, &version) {
+                    PreviewResult::NoPreviewAvailable => error(format!("No preview available for {}", target)),
+                    PreviewResult::Ok(preview) => Ok((version, preview)),
+                },
+            };
+
+            let (version1, preview_file_path1) = version_and_preview(&target1)?;
+            let (version2, preview_file_path2) = version_and_preview(&target2)?;
+
+            let formatted_versions = print_utils::format_versions(&repo_data, &vec![version1, version2]);
+            let description1 = &formatted_versions[0];
+            let description2 = &formatted_versions[1];
+
+            viewer::show_comparison(preview_file_path1, description1, preview_file_path2, description2)?;
+
+            success()
         }
 
         Command::Commit {
@@ -88,10 +135,10 @@ fn main() -> BiverResult<ExitCode> {
             };
 
             match result {
-                CommitResult::Ok => success("OK"),
+                CommitResult::Ok => success_ok(),
                 CommitResult::NothingToCommit => warning("Nothing to commit"),
-                CommitResult::BranchRequired => failure("Branch required"),
-                CommitResult::BranchAlreadyExists => failure("Branch already exists"),
+                CommitResult::BranchRequired => error("Branch required"),
+                CommitResult::BranchAlreadyExists => error("Branch already exists"),
             }
         }
 
@@ -111,13 +158,13 @@ fn main() -> BiverResult<ExitCode> {
                 io::stdin().read_line(&mut input)?;
                 let confirmed = input.trim().eq_ignore_ascii_case("y");
                 if !confirmed {
-                    return success("");
+                    return success();
                 }
             }
 
             repository_operations::discard(&repo_paths, &repo_data)?;
 
-            success("")
+            success_ok()
         }
 
         Command::Checkout { versioned_file_path, target } => {
@@ -129,9 +176,9 @@ fn main() -> BiverResult<ExitCode> {
             let result = repository_operations::check_out(&repo_paths, &mut repo_data, &target)?;
 
             match result {
-                CheckOutResult::Ok => success("OK"),
-                CheckOutResult::BlockedByUncommittedChanges => failure("Cannot check out because there are uncommitted changes"),
-                CheckOutResult::InvalidTarget => failure("Invalid target"),
+                CheckOutResult::Ok => success_ok(),
+                CheckOutResult::BlockedByUncommittedChanges => error("Cannot check out because there are uncommitted changes"),
+                CheckOutResult::InvalidTarget => error("Invalid target"),
             }
         }
 
@@ -139,33 +186,20 @@ fn main() -> BiverResult<ExitCode> {
             let xdelta3_ready = xdelta3::ready();
             let image_magick_ready = image_magick::ready();
             print_utils::print_dependencies(xdelta3_ready, image_magick_ready);
-            success("")
+            success()
         }
     }
 }
 
-fn uninitialized() -> BiverResult<ExitCode> {
-    println!("{}", "Not initialized".yellow());
-    Ok(ExitCode::SUCCESS)
+fn uninitialized() -> BiverResult<()> {
+    warning("Not initialized")
 }
 
-fn success(message: &str) -> BiverResult<ExitCode> {
-    if !message.is_empty() {
-        println!("{}", message.green());
-    }
-    Ok(ExitCode::SUCCESS)
+fn success_ok() -> BiverResult<()> {
+    println!("{}", "OK".green());
+    Ok(())
 }
 
-fn warning(message: &str) -> BiverResult<ExitCode> {
-    if !message.is_empty() {
-        println!("{}", message.yellow());
-    }
-    Ok(ExitCode::SUCCESS)
-}
-
-fn failure(message: &str) -> BiverResult<ExitCode> {
-    if !message.is_empty() {
-        println!("{}", message.red());
-    }
-    Ok(ExitCode::FAILURE)
+fn success() -> BiverResult<()> {
+    Ok(())
 }

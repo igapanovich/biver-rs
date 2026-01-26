@@ -28,17 +28,72 @@ pub fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes
 
     versions_to_print.reverse();
 
+    let FormattedVersionGroup {
+        versions,
+        humanized_creation_time_padding,
+        nickname_padding,
+    } = format_version_group(repo_data, &versions_to_print);
+
+    if more_versions_off_screen {
+        println!("...");
+    }
+
+    for formatted_version in &versions {
+        println!(
+            "{} {:<humanized_creation_time_padding$} {} {:<nickname_padding$} {}{}{}",
+            formatted_version.creation_time.blue(),
+            formatted_version.creation_time_humanized.bright_blue(),
+            formatted_version.id.bright_black(),
+            formatted_version.nickname.white(),
+            formatted_version.branch_badge.bright_blue(),
+            formatted_version.head_badge.magenta(),
+            formatted_version.description.green(),
+        );
+    }
+
+    if has_uncommitted_changes {
+        let offset = 21 + humanized_creation_time_padding;
+        println!("{:<offset$}{}", "", "(uncommitted changes)".yellow());
+    }
+}
+
+pub fn format_versions(repo_data: &RepositoryData, versions: &[&Version]) -> Vec<String> {
+    let FormattedVersionGroup {
+        versions,
+        humanized_creation_time_padding,
+        nickname_padding,
+    } = format_version_group(repo_data, versions);
+
+    let mut result = Vec::new();
+
+    for formatted_version in versions {
+        result.push(format!(
+            "{} {:<humanized_creation_time_padding$} {} {:<nickname_padding$} {}{}{}",
+            formatted_version.creation_time,
+            formatted_version.creation_time_humanized,
+            formatted_version.id,
+            formatted_version.nickname,
+            formatted_version.branch_badge,
+            formatted_version.head_badge,
+            formatted_version.description,
+        ));
+    }
+
+    result
+}
+
+fn format_version_group(repo_data: &RepositoryData, versions: &[&Version]) -> FormattedVersionGroup {
+    let mut formatted_versions = Vec::new();
+
     let mut humanized_creation_time_padding = 0;
     let mut nickname_padding = 0;
-
-    let mut formatted_versions = Vec::new();
 
     let (head_version_id, head_branch) = match &repo_data.head {
         Head::Version(version_id) => (*version_id, None),
         Head::Branch(branch) => (repo_data.branches[branch], Some(branch)),
     };
 
-    for version in &versions_to_print {
+    for version in versions {
         let version_branch = repo_data.branch_on_version(&version.id);
 
         let (branch_badge, head_badge) = match (version_branch, head_branch) {
@@ -72,40 +127,14 @@ pub fn print_repository_data(repo_data: &RepositoryData, has_uncommitted_changes
             branch_badge,
             head_badge,
             description: version.description.clone(),
-        })
+        });
     }
 
-    if more_versions_off_screen {
-        println!("...");
+    FormattedVersionGroup {
+        versions: formatted_versions,
+        humanized_creation_time_padding,
+        nickname_padding,
     }
-
-    for formatted_version in &formatted_versions {
-        println!(
-            "{} {:<humanized_creation_time_padding$} {} {:<nickname_padding$} {}{}{}",
-            formatted_version.creation_time.blue(),
-            formatted_version.creation_time_humanized.bright_blue(),
-            formatted_version.id.bright_black(),
-            formatted_version.nickname.white(),
-            formatted_version.branch_badge.bright_blue(),
-            formatted_version.head_badge.magenta(),
-            formatted_version.description.green(),
-        );
-    }
-
-    if has_uncommitted_changes {
-        let offset = 21 + humanized_creation_time_padding;
-        println!("{:<offset$}{}", "", "(uncommitted changes)".yellow());
-    }
-}
-
-struct FormattedVersion {
-    creation_time: String,
-    creation_time_humanized: String,
-    id: String,
-    nickname: String,
-    branch_badge: String,
-    head_badge: String,
-    description: String,
 }
 
 pub fn print_dependencies(xdelta3_ready: bool, image_magick_ready: bool) {
@@ -131,4 +160,20 @@ pub fn print_branch_list(repo_data: &RepositoryData) {
     for branch in repo_data.branches.keys() {
         println!("{}", branch)
     }
+}
+
+struct FormattedVersion {
+    creation_time: String,
+    creation_time_humanized: String,
+    id: String,
+    nickname: String,
+    branch_badge: String,
+    head_badge: String,
+    description: String,
+}
+
+struct FormattedVersionGroup {
+    versions: Vec<FormattedVersion>,
+    humanized_creation_time_padding: usize,
+    nickname_padding: usize,
 }

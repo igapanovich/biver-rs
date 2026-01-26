@@ -231,26 +231,31 @@ pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, t
     Ok(CheckOutResult::Ok)
 }
 
-pub enum PreviewResult {
-    Ok(PathBuf),
-    NoPreviewAvailable,
+pub enum VersionResult<'a> {
+    Ok(&'a Version),
     InvalidTarget,
 }
 
-pub fn preview(repo_paths: &RepositoryPaths, repo_data: &RepositoryData, target: &str) -> BiverResult<PreviewResult> {
+pub fn version<'a>(repo_data: &'a RepositoryData, target: &str) -> VersionResult<'a> {
     let version = match resolve_target(repo_data, target) {
-        TargetResult::Invalid => return Ok(PreviewResult::InvalidTarget),
+        TargetResult::Invalid => return VersionResult::InvalidTarget,
         TargetResult::Version(version) => version,
         TargetResult::Branch(branch) => repo_data.branch_leaf(branch).expect("Branch resolved from target must exist"),
     };
 
-    let Some(preview_blob_name) = &version.preview_blob_file_name else {
-        return Ok(PreviewResult::NoPreviewAvailable);
-    };
+    VersionResult::Ok(version)
+}
 
-    let preview_blob_path = repo_paths.repository_dir.join(&preview_blob_name);
+pub enum PreviewResult {
+    Ok(PathBuf),
+    NoPreviewAvailable,
+}
 
-    Ok(PreviewResult::Ok(preview_blob_path))
+pub fn preview(repo_paths: &RepositoryPaths, version: &Version) -> PreviewResult {
+    match version.preview_blob_file_name.as_ref() {
+        None => PreviewResult::NoPreviewAvailable,
+        Some(preview_file_name) => PreviewResult::Ok(repo_paths.repository_dir.join(preview_file_name)),
+    }
 }
 
 fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResult<()> {

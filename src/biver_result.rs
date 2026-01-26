@@ -1,20 +1,17 @@
-use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-pub type BiverResult<T> = Result<T, Box<dyn Error>>;
+pub type BiverResult<T> = Result<T, BiverError>;
 
 #[derive(Debug)]
 pub struct BiverError {
-    error_message: String,
+    pub error_message: String,
+    pub severity: BiverErrorSeverity,
 }
 
-impl BiverError {
-    pub fn new(error_message: impl Into<String>) -> BiverError {
-        BiverError {
-            error_message: error_message.into(),
-        }
-        .into()
-    }
+#[derive(Debug)]
+pub enum BiverErrorSeverity {
+    Error,
+    Warning,
 }
 
 impl Display for BiverError {
@@ -23,8 +20,54 @@ impl Display for BiverError {
     }
 }
 
-impl Error for BiverError {}
+impl From<eframe::Error> for BiverError {
+    fn from(value: eframe::Error) -> Self {
+        Self {
+            error_message: format!("eframe/egui failure: {}", value),
+            severity: BiverErrorSeverity::Error,
+        }
+    }
+}
+
+impl From<image::ImageError> for BiverError {
+    fn from(value: image::ImageError) -> Self {
+        Self {
+            error_message: format!("image failure: {}", value),
+            severity: BiverErrorSeverity::Error,
+        }
+    }
+}
+
+impl From<serde_json::Error> for BiverError {
+    fn from(value: serde_json::Error) -> Self {
+        Self {
+            error_message: format!("serde_json failure: {}", value),
+            severity: BiverErrorSeverity::Error,
+        }
+    }
+}
+
+impl From<std::io::Error> for BiverError {
+    fn from(value: std::io::Error) -> Self {
+        Self {
+            error_message: format!("io failure: {}", value),
+            severity: BiverErrorSeverity::Error,
+        }
+    }
+}
 
 pub fn error<T>(message: impl Into<String>) -> BiverResult<T> {
-    Err(BiverError::new(message).into())
+    Err(BiverError {
+        error_message: message.into(),
+        severity: BiverErrorSeverity::Error,
+    }
+    .into())
+}
+
+pub fn warning<T>(message: impl Into<String>) -> BiverResult<T> {
+    Err(BiverError {
+        error_message: message.into(),
+        severity: BiverErrorSeverity::Warning,
+    }
+    .into())
 }
