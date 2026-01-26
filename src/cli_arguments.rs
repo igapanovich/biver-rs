@@ -12,7 +12,7 @@ pub enum Command {
     /// Show the current status of the repository
     #[command(alias = "st")]
     Status {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
         /// Show all versions (by default, limited to 20 most recent)
@@ -24,19 +24,20 @@ pub enum Command {
     #[command(subcommand)]
     List(ListCommand),
 
-    /// Preview a version of the file
+    /// Preview a version
     #[command(alias = "pv")]
     Preview {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
         /// Target branch or version to preview. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
         target: String,
     },
 
+    /// Compare two versions using their previews
     #[command(alias = "cmp")]
     Compare {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
         /// Target branch or version to compare. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
@@ -49,7 +50,7 @@ pub enum Command {
     /// Commit current changes to a new version
     #[command(alias = "ct")]
     Commit {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
         /// New branch to create
@@ -63,7 +64,7 @@ pub enum Command {
 
     /// Discard uncommitted changes
     Discard {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
         /// Do not ask for confirmation
@@ -71,9 +72,9 @@ pub enum Command {
         confirmed: bool,
     },
 
-    /// Check out a specific branch or version. If a version nickname is specified, the latest version with that nickname will be checked out.
+    /// Check out a specific branch or version
     Checkout {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
         /// Target branch or version to preview. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
@@ -88,7 +89,7 @@ pub enum Command {
 pub enum ListCommand {
     /// List branches
     Branches {
-        #[arg(short = 'f', long = "file", env = "BIVER_PATH")]
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
     },
 }
