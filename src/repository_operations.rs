@@ -346,13 +346,27 @@ fn nickname_matches(nickname: &str, input: &str) -> bool {
         return true;
     }
 
-    let nickname_chars_without_dash = nickname.chars().filter(|c| c != &'-');
+    fn nickname_without_dash_matches(nickname: &str, input: &str) -> bool {
+        let pairs = nickname.chars().filter(|c| c != &'-').zip(input.chars());
 
-    if nickname_chars_without_dash.eq(input.chars()) {
+        let mut zip_length = 0;
+
+        for (nickname_char, input_char) in pairs {
+            zip_length += 1;
+
+            if !nickname_char.eq_ignore_ascii_case(&input_char) {
+                return false;
+            }
+        }
+
+        zip_length == input.len()
+    }
+
+    if nickname_without_dash_matches(nickname, input) {
         return true;
     }
 
-    fn nickname_matches_initials(nickname: &str, input: &str) -> bool {
+    fn nickname_initials_match(nickname: &str, input: &str) -> bool {
         if input.len() != 2 {
             return false;
         }
@@ -364,8 +378,8 @@ fn nickname_matches(nickname: &str, input: &str) -> bool {
         let nickname_initials_first = nickname.chars().nth(0).unwrap();
         let nickname_initials_second = nickname.chars().nth(index_of_dash + 1).unwrap();
 
-        input_initials_first == nickname_initials_first && input_initials_second == nickname_initials_second
+        input_initials_first.eq_ignore_ascii_case(&nickname_initials_first) && input_initials_second.eq_ignore_ascii_case(&nickname_initials_second)
     }
 
-    nickname_matches_initials(nickname, input)
+    nickname_initials_match(nickname, input)
 }
