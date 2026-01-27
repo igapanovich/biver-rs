@@ -3,6 +3,12 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct CliArguments {
+    #[arg(global(true), long = "xdelta3-path", env = "BIVER_XDELTA3_PATH")]
+    pub xdelta3_path: Option<PathBuf>,
+
+    #[arg(global(true), long = "image-magick-path", env = "BIVER_IMAGE_MAGICK_PATH")]
+    pub image_magick_path: Option<PathBuf>,
+
     #[command(subcommand)]
     pub command: Command,
 }

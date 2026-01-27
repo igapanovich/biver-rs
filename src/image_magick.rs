@@ -3,19 +3,23 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 
-pub fn ready() -> bool {
-    let status = imagemagick_command().arg("-version").status();
+pub trait ImageMagickEnv {
+    fn image_magick_path(&self) -> Option<&Path>;
+}
+
+pub fn ready(env: &impl ImageMagickEnv) -> bool {
+    let status = image_magick_command(env).arg("-version").status();
     match status {
         Ok(status) => status.code() == Some(0),
         Err(_) => false,
     }
 }
 
-pub fn create_preview(input: &Path, preview: &Path) -> io::Result<()> {
+pub fn create_preview(env: &impl ImageMagickEnv, input: &Path, preview: &Path) -> io::Result<()> {
     let mut preview_with_prefix = OsString::from("jpg:");
     preview_with_prefix.push(preview);
 
-    let status = imagemagick_command()
+    let status = image_magick_command(env)
         .arg(input)
         .arg("-flatten")
         .arg("-thumbnail")
@@ -23,10 +27,10 @@ pub fn create_preview(input: &Path, preview: &Path) -> io::Result<()> {
         .arg(preview_with_prefix)
         .status();
 
-    map_imagemagick_status(status)
+    map_image_magick_status(status)
 }
 
-fn map_imagemagick_status(status_result: io::Result<ExitStatus>) -> io::Result<()> {
+fn map_image_magick_status(status_result: io::Result<ExitStatus>) -> io::Result<()> {
     status_result.and_then(|status| {
         if status.success() {
             Ok(())
@@ -36,8 +40,11 @@ fn map_imagemagick_status(status_result: io::Result<ExitStatus>) -> io::Result<(
     })
 }
 
-fn imagemagick_command() -> Command {
-    let mut command = Command::new("magick");
+fn image_magick_command(env: &impl ImageMagickEnv) -> Command {
+    let mut image_magick_path = env.image_magick_path();
+    let image_magick_path = image_magick_path.get_or_insert_with(|| Path::new("magick"));
+
+    let mut command = Command::new(image_magick_path);
     command.stdout(Stdio::null());
     command.stderr(Stdio::null());
     command
