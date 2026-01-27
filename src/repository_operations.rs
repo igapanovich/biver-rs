@@ -143,7 +143,7 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         .map(|extension| known_file_types::is_image(extension))
         .unwrap_or(false);
 
-    let preview_blob_file_name = if versioned_file_is_image {
+    let preview_blob_file_name = if versioned_file_is_image && image_magick::ready() {
         let preview_blob_file_name = new_version_id.to_file_name() + "_preview";
         let preview_blob_file_path = repo_paths.repository_dir.join(&preview_blob_file_name);
         image_magick::create_preview(repo_paths.versioned_file.as_path(), preview_blob_file_path.as_path())?;
