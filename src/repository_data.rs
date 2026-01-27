@@ -87,6 +87,7 @@ pub struct Version {
     pub id: VersionId,
     pub creation_time: DateTime<Utc>,
     pub nickname: String,
+    pub versioned_file_length: u64,
     pub versioned_file_xxh3_128: u128,
     pub description: String,
     pub parent: Option<VersionId>,

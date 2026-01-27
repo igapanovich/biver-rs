@@ -76,10 +76,10 @@ pub fn commit_version(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryDa
 fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut RepositoryData>, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
     let versioned_file = File::open(&repo_paths.versioned_file)?;
 
-    let xxh3_128 = hash::xxh3_128(&versioned_file)?;
+    let versioned_file_xxh3_128 = hash::xxh3_128(&versioned_file)?;
 
     if let Some(repo_data) = &repo_data
-        && repo_data.head_version().versioned_file_xxh3_128 == xxh3_128
+        && repo_data.head_version().versioned_file_xxh3_128 == versioned_file_xxh3_128
     {
         return Ok(CommitResult::NothingToCommit);
     }
@@ -152,11 +152,14 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         None
     };
 
+    let versioned_file_length = fs::metadata(&repo_paths.versioned_file)?.len();
+
     let new_version = Version {
         id: new_version_id,
         creation_time: Utc::now(),
-        nickname: nickname::new_nickname(xxh3_128),
-        versioned_file_xxh3_128: xxh3_128,
+        nickname: nickname::new_nickname(versioned_file_xxh3_128),
+        versioned_file_length,
+        versioned_file_xxh3_128,
         description: description.to_string(),
         parent: repo_data.as_ref().map(|data| data.head_version().id),
         content_blob_file_name,
@@ -190,11 +193,18 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
 }
 
 pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<bool> {
+    let versioned_file_metadata = fs::metadata(&repo_paths.versioned_file)?;
+    let head_version = repo_data.head_version();
+
+    if versioned_file_metadata.len() != head_version.versioned_file_length {
+        return Ok(true);
+    }
+
     let versioned_file = File::open(&repo_paths.versioned_file)?;
 
     let current_xxh3_128 = hash::xxh3_128(&versioned_file)?;
 
-    Ok(repo_data.head_version().versioned_file_xxh3_128 != current_xxh3_128)
+    Ok(head_version.versioned_file_xxh3_128 != current_xxh3_128)
 }
 
 pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<()> {
