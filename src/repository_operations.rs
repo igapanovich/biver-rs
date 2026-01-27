@@ -306,6 +306,30 @@ fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResul
         panic!("Repository data is not valid: {:#?}", data);
     }
 
+    let backup1 = paths.file_path("data_backup1.json");
+    let backup2 = paths.file_path("data_backup2.json");
+    let backup3 = paths.file_path("data_backup3.json");
+    let backup4 = paths.file_path("data_backup4.json");
+    let backup5 = paths.file_path("data_backup5.json");
+
+    if backup4.exists() {
+        fs::copy(&backup4, &backup5)?;
+    }
+
+    if backup3.exists() {
+        fs::copy(&backup3, &backup4)?;
+    }
+
+    if backup2.exists() {
+        fs::copy(&backup2, &backup3)?;
+    }
+
+    if backup1.exists() {
+        fs::copy(&backup1, &backup2)?;
+    }
+
+    fs::copy(&paths.data_file, &backup1)?;
+
     let data_file_content = serde_json::to_string_pretty(data)?;
     fs::write(&paths.data_file, data_file_content)?;
 
