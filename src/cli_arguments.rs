@@ -87,6 +87,15 @@ pub enum Command {
         target: String,
     },
 
+    /// Set versioned file to the state it was in when the specified version was created
+    Apply {
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
+        versioned_file_path: PathBuf,
+
+        /// Target branch or version to apply. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
+        target: String,
+    },
+
     /// List dependencies and check their statuses
     Dependencies,
 }

@@ -248,6 +248,30 @@ pub fn check_out(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Reposi
     Ok(CheckOutResult::Ok)
 }
 
+pub enum ApplyResult {
+    Ok,
+    BlockedByUncommittedChanges,
+    InvalidTarget,
+}
+
+pub fn apply(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryData, target: &str) -> BiverResult<ApplyResult> {
+    let has_uncommitted_changes = has_uncommitted_changes(repo_paths, repo_data)?;
+
+    if has_uncommitted_changes {
+        return Ok(ApplyResult::BlockedByUncommittedChanges);
+    }
+
+    let target_version = match resolve_target(repo_data, target) {
+        TargetResult::Invalid => return Ok(ApplyResult::InvalidTarget),
+        TargetResult::Branch(branch) => repo_data.version(repo_data.branches[branch]).expect("Branch resolved from target must exist"),
+        TargetResult::Version(version) => version,
+    };
+
+    set_versioned_file_to_version(env, repo_paths, repo_data, target_version)?;
+
+    Ok(ApplyResult::Ok)
+}
+
 pub enum VersionResult<'a> {
     Ok(&'a Version),
     InvalidTarget,
