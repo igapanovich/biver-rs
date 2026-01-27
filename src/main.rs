@@ -1,5 +1,6 @@
 use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, warning};
 use crate::cli_arguments::{CliArguments, Command, ListCommand};
+use crate::env::Env;
 use crate::repository_data::RepositoryData;
 use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, VersionResult};
 use clap::Parser;
@@ -9,6 +10,7 @@ use std::process::ExitCode;
 
 mod biver_result;
 mod cli_arguments;
+mod env;
 mod hash;
 mod image_magick;
 mod known_file_types;
@@ -24,7 +26,12 @@ mod xdelta3;
 fn main() -> ExitCode {
     let cli_arguments = CliArguments::parse();
 
-    match run_command(cli_arguments.command) {
+    let env = Env {
+        xdelta3_path: cli_arguments.xdelta3_path,
+        image_magick_path: cli_arguments.image_magick_path,
+    };
+
+    match run_command(&env, cli_arguments.command) {
         Ok(()) => ExitCode::SUCCESS,
 
         Err(BiverError {
@@ -45,7 +52,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run_command(command: Command) -> BiverResult<()> {
+fn run_command(env: &Env, command: Command) -> BiverResult<()> {
     match command {
         Command::Status { versioned_file_path, all } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
@@ -128,8 +135,8 @@ fn run_command(command: Command) -> BiverResult<()> {
             let repo_data = repository_operations::data(&repo_paths)?;
 
             let result = match repo_data {
-                RepositoryDataResult::NotInitialized => repository_operations::commit_initial_version(&repo_paths, branch.as_deref(), &description)?,
-                RepositoryDataResult::Initialized(mut repo_data) => repository_operations::commit_version(&repo_paths, &mut repo_data, branch.as_deref(), &description)?,
+                RepositoryDataResult::NotInitialized => repository_operations::commit_initial_version(env, &repo_paths, branch.as_deref(), &description)?,
+                RepositoryDataResult::Initialized(mut repo_data) => repository_operations::commit_version(env, &repo_paths, &mut repo_data, branch.as_deref(), &description)?,
             };
 
             match result {
@@ -156,7 +163,7 @@ fn run_command(command: Command) -> BiverResult<()> {
                 }
             }
 
-            repository_operations::discard(&repo_paths, &repo_data)?;
+            repository_operations::discard(env, &repo_paths, &repo_data)?;
 
             success_ok()
         }
@@ -165,7 +172,7 @@ fn run_command(command: Command) -> BiverResult<()> {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
-            let result = repository_operations::check_out(&repo_paths, &mut repo_data, &target)?;
+            let result = repository_operations::check_out(env, &repo_paths, &mut repo_data, &target)?;
 
             match result {
                 CheckOutResult::Ok => success_ok(),
@@ -175,7 +182,7 @@ fn run_command(command: Command) -> BiverResult<()> {
         }
 
         Command::Dependencies => {
-            print_utils::print_dependencies(xdelta3::ready(), image_magick::ready());
+            print_utils::print_dependencies(xdelta3::ready(env), image_magick::ready(env));
             success()
         }
     }

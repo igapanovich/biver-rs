@@ -1,4 +1,5 @@
 use crate::biver_result::BiverResult;
+use crate::env::Env;
 use crate::repository_data::{ContentBlobKind, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
@@ -59,21 +60,27 @@ pub enum CommitResult {
     BranchAlreadyExists,
 }
 
-pub fn commit_initial_version(repo_paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
+pub fn commit_initial_version(env: &Env, repo_paths: &RepositoryPaths, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
     if !fs::exists(&repo_paths.repository_dir)? {
         fs::create_dir(&repo_paths.repository_dir)?;
     } else if fs::exists(&repo_paths.data_file)? {
         return biver_result::error("The data file already exists.");
     }
 
-    commit_version_common(repo_paths, None, new_branch, description)
+    commit_version_common(env, repo_paths, None, new_branch, description)
 }
 
-pub fn commit_version(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
-    commit_version_common(repo_paths, Some(repo_data), new_branch, description)
+pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
+    commit_version_common(env, repo_paths, Some(repo_data), new_branch, description)
 }
 
-fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut RepositoryData>, new_branch: Option<&str>, description: &str) -> BiverResult<CommitResult> {
+fn commit_version_common(
+    env: &Env,
+    repo_paths: &RepositoryPaths,
+    repo_data: Option<&mut RepositoryData>,
+    new_branch: Option<&str>,
+    description: &str,
+) -> BiverResult<CommitResult> {
     let versioned_file = File::open(&repo_paths.versioned_file)?;
 
     let versioned_file_xxh3_128 = hash::xxh3_128(&versioned_file)?;
@@ -100,7 +107,7 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         },
     };
 
-    let (content_blob_kind, base_content_blob_file_name) = if !xdelta3::ready() {
+    let (content_blob_kind, base_content_blob_file_name) = if !xdelta3::ready(env) {
         (ContentBlobKind::Full, "")
     } else {
         match repo_data.as_ref() {
@@ -132,7 +139,7 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         }
         ContentBlobKind::Patch(_) => {
             let base_blob_file_path = repo_paths.repository_dir.join(&base_content_blob_file_name);
-            xdelta3::create_patch(base_blob_file_path.as_path(), &repo_paths.versioned_file, content_blob_file_path.as_path())?;
+            xdelta3::create_patch(env, base_blob_file_path.as_path(), &repo_paths.versioned_file, content_blob_file_path.as_path())?;
         }
     }
 
@@ -143,10 +150,10 @@ fn commit_version_common(repo_paths: &RepositoryPaths, repo_data: Option<&mut Re
         .map(|extension| known_file_types::is_image(extension))
         .unwrap_or(false);
 
-    let preview_blob_file_name = if versioned_file_is_image && image_magick::ready() {
+    let preview_blob_file_name = if versioned_file_is_image && image_magick::ready(env) {
         let preview_blob_file_name = new_version_id.to_file_name() + "_preview";
         let preview_blob_file_path = repo_paths.repository_dir.join(&preview_blob_file_name);
-        image_magick::create_preview(repo_paths.versioned_file.as_path(), preview_blob_file_path.as_path())?;
+        image_magick::create_preview(env, repo_paths.versioned_file.as_path(), preview_blob_file_path.as_path())?;
         Some(preview_blob_file_name)
     } else {
         None
@@ -207,9 +214,9 @@ pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &Reposit
     Ok(head_version.versioned_file_xxh3_128 != current_xxh3_128)
 }
 
-pub fn discard(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<()> {
+pub fn discard(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<()> {
     let head_version = repo_data.head_version();
-    set_versioned_file_to_version(repo_paths, repo_data, &head_version)?;
+    set_versioned_file_to_version(env, repo_paths, repo_data, &head_version)?;
     Ok(())
 }
 
@@ -219,7 +226,7 @@ pub enum CheckOutResult {
     InvalidTarget,
 }
 
-pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str) -> BiverResult<CheckOutResult> {
+pub fn check_out(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str) -> BiverResult<CheckOutResult> {
     let has_uncommitted_changes = has_uncommitted_changes(repo_paths, repo_data)?;
 
     if has_uncommitted_changes {
@@ -236,7 +243,7 @@ pub fn check_out(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, t
     let new_head_version = repo_data.head_version();
 
     write_data_file(repo_data, repo_paths)?;
-    set_versioned_file_to_version(repo_paths, repo_data, new_head_version)?;
+    set_versioned_file_to_version(env, repo_paths, repo_data, new_head_version)?;
 
     Ok(CheckOutResult::Ok)
 }
@@ -279,7 +286,7 @@ fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResul
     Ok(())
 }
 
-fn set_versioned_file_to_version(paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> BiverResult<()> {
+fn set_versioned_file_to_version(env: &Env, paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> BiverResult<()> {
     let blob_path = paths.repository_dir.join(&version.content_blob_file_name);
 
     match version.content_blob_kind {
@@ -289,7 +296,7 @@ fn set_versioned_file_to_version(paths: &RepositoryPaths, data: &RepositoryData,
         ContentBlobKind::Patch(base_version_id) => {
             let base_version = data.version(base_version_id).expect("Version referenced by patch must exist");
             let base_version_blob_path = paths.repository_dir.join(&base_version.content_blob_file_name);
-            xdelta3::apply_patch(base_version_blob_path.as_path(), blob_path.as_path(), &paths.versioned_file)?;
+            xdelta3::apply_patch(env, base_version_blob_path.as_path(), blob_path.as_path(), &paths.versioned_file)?;
         }
     }
 
