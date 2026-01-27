@@ -1,6 +1,6 @@
 use crate::biver_result::BiverResult;
 use eframe::{CreationContext, Frame, NativeOptions};
-use egui::{ColorImage, Context, Image, Key, TextureHandle, TextureOptions, ViewportBuilder, ViewportCommand};
+use egui::{ColorImage, Context, Image, Key, Rect, TextureHandle, TextureOptions, ViewportBuilder, ViewportCommand, pos2};
 use image::ImageFormat;
 use std::fs::File;
 use std::io::BufReader;
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub fn show_preview(image_path: PathBuf) -> BiverResult<()> {
     let image = egui_image_from_file(&image_path)?;
 
-    eframe::run_native("BiVer Previewer", egui_options(), Box::new(|cc| Ok(Box::new(PreviewApp::new(cc, image)))))?;
+    eframe::run_native("", egui_options(), Box::new(|cc| Ok(Box::new(PreviewApp::new(cc, image)))))?;
 
     Ok(())
 }
@@ -47,28 +47,35 @@ fn egui_options() -> NativeOptions {
 
 struct PreviewApp {
     image_texture: TextureHandle,
+    flipped: bool,
 }
 
 impl PreviewApp {
     fn new(cc: &CreationContext, image: ColorImage) -> Self {
         Self {
             image_texture: cc.egui_ctx.load_texture("image", image, TextureOptions::default()),
+            flipped: false,
         }
     }
 }
 
 impl eframe::App for PreviewApp {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        let q_pressed = ctx.input(|i| i.key_pressed(Key::Q));
+        let (q_pressed, f_pressed) = ctx.input(|i| (i.key_pressed(Key::Q), i.key_pressed(Key::F)));
 
         if q_pressed {
             ctx.send_viewport_cmd(ViewportCommand::Close)
         }
 
+        if f_pressed {
+            self.flipped = !self.flipped;
+            ctx.send_viewport_cmd(ViewportCommand::Title(if self.flipped { "(flipped) " } else { "" }.to_string()));
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             let ui_size = ui.available_size();
 
-            ui.add(Image::new(&self.image_texture).fit_to_exact_size(ui_size))
+            ui.add(Image::new(&self.image_texture).fit_to_exact_size(ui_size).uv(uv_rect(self.flipped)));
         });
     }
 }
@@ -84,6 +91,7 @@ struct ComparerApp<'a> {
     description1: &'a str,
     description2: &'a str,
     selected_image: SelectedImage,
+    flipped: bool,
 }
 
 impl<'a> ComparerApp<'a> {
@@ -94,59 +102,90 @@ impl<'a> ComparerApp<'a> {
             description1,
             description2,
             selected_image: SelectedImage::Image1,
+            flipped: false,
         }
     }
 }
 
 impl<'a> eframe::App for ComparerApp<'a> {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
-        let (q_pressed, k_pressed, j_pressed, space_pressed) = ctx.input(|i| (i.key_pressed(Key::Q), i.key_pressed(Key::K), i.key_pressed(Key::J), i.key_pressed(Key::Space)));
+        let (q_pressed, k_pressed, j_pressed, space_pressed, f_pressed) = ctx.input(|i| {
+            (
+                i.key_pressed(Key::Q),
+                i.key_pressed(Key::K),
+                i.key_pressed(Key::J),
+                i.key_pressed(Key::Space),
+                i.key_pressed(Key::F),
+            )
+        });
 
         if q_pressed {
             ctx.send_viewport_cmd(ViewportCommand::Close)
         }
 
-        let update_title = |selected_image| {
-            let description = match selected_image {
-                SelectedImage::Image1 => self.description1,
-                SelectedImage::Image2 => self.description2,
-            };
-
-            ctx.send_viewport_cmd(ViewportCommand::Title(description.to_string()));
-        };
+        let mut title_should_be_updated = false;
 
         if k_pressed {
             self.selected_image = SelectedImage::Image1;
-            update_title(SelectedImage::Image1);
+            title_should_be_updated = true;
         }
 
         if j_pressed {
             self.selected_image = SelectedImage::Image2;
-            update_title(SelectedImage::Image2);
+            title_should_be_updated = true;
         }
 
         if space_pressed {
             match self.selected_image {
                 SelectedImage::Image1 => {
                     self.selected_image = SelectedImage::Image2;
-                    update_title(SelectedImage::Image2)
+                    title_should_be_updated = true;
                 }
                 SelectedImage::Image2 => {
                     self.selected_image = SelectedImage::Image1;
-                    update_title(SelectedImage::Image1)
+                    title_should_be_updated = true;
                 }
             };
         }
 
+        if f_pressed {
+            self.flipped = !self.flipped;
+            title_should_be_updated = true;
+        }
+
+        if title_should_be_updated {
+            let description = match self.selected_image {
+                SelectedImage::Image1 => self.description1,
+                SelectedImage::Image2 => self.description2,
+            };
+
+            let description = if self.flipped {
+                let mut s = String::from("(flipped) ");
+                s.push_str(description);
+                s
+            } else {
+                description.to_string()
+            };
+
+            ctx.send_viewport_cmd(ViewportCommand::Title(description));
+        }
+
+        let image_texture = match self.selected_image {
+            SelectedImage::Image1 => &self.image1_texture,
+            SelectedImage::Image2 => &self.image2_texture,
+        };
+
         egui::CentralPanel::default().show(ctx, |ui| {
             let ui_size = ui.available_size();
 
-            let image_texture = match self.selected_image {
-                SelectedImage::Image1 => &self.image1_texture,
-                SelectedImage::Image2 => &self.image2_texture,
-            };
-
-            ui.add(Image::new(image_texture).fit_to_exact_size(ui_size));
+            ui.add(Image::new(image_texture).fit_to_exact_size(ui_size).uv(uv_rect(self.flipped)));
         });
     }
+}
+
+fn uv_rect(flipped: bool) -> Rect {
+    let p1_x = if flipped { 1.0 } else { 0.0 };
+    let p2_x = if flipped { 0.0 } else { 1.0 };
+
+    Rect::from_min_max(pos2(p1_x, 0.0), pos2(p2_x, 1.0))
 }
