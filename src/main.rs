@@ -11,11 +11,11 @@ use std::process::ExitCode;
 mod biver_result;
 mod cli_arguments;
 mod env;
+mod formatting;
 mod hash;
 mod image_magick;
 mod known_file_types;
 mod nickname;
-mod print_utils;
 mod repository_data;
 mod repository_operations;
 mod repository_paths;
@@ -62,7 +62,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                 RepositoryDataResult::NotInitialized => println!("Not initialized"),
                 RepositoryDataResult::Initialized(repository_data) => {
                     let has_uncommitted_changes = repository_operations::has_uncommitted_changes(&repo_paths, &repository_data)?;
-                    print_utils::print_repository_data(&repository_data, has_uncommitted_changes, all);
+                    formatting::print_repository_data(&repository_data, has_uncommitted_changes, all);
                 }
             }
 
@@ -73,7 +73,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
-            print_utils::print_branch_list(&repo_data);
+            formatting::print_branch_list(&repo_data);
 
             success()
         }
@@ -116,7 +116,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             let (version1, preview_file_path1) = version_and_preview(&target1)?;
             let (version2, preview_file_path2) = version_and_preview(&target2)?;
 
-            let formatted_versions = print_utils::format_versions(&repo_data, &vec![version1, version2]);
+            let formatted_versions = formatting::format_versions(&repo_data, &vec![version1, version2]);
             let description1 = &formatted_versions[0];
             let description2 = &formatted_versions[1];
 
@@ -199,7 +199,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
         }
 
         Command::Dependencies => {
-            print_utils::print_dependencies(xdelta3::ready(env), image_magick::ready(env));
+            formatting::print_dependencies(xdelta3::ready(env), image_magick::ready(env));
             success()
         }
     }
