@@ -131,14 +131,14 @@ fn commit_version_common(
     let new_version_id = VersionId::new();
 
     let content_blob_file_name = new_version_id.to_file_name() + "_content";
-    let content_blob_file_path = repo_paths.repository_dir.join(&content_blob_file_name);
+    let content_blob_file_path = repo_paths.file_path(&content_blob_file_name);
 
     match content_blob_kind {
         ContentBlobKind::Full => {
             fs::copy(&repo_paths.versioned_file, content_blob_file_path)?;
         }
         ContentBlobKind::Patch(_) => {
-            let base_blob_file_path = repo_paths.repository_dir.join(&base_content_blob_file_name);
+            let base_blob_file_path = repo_paths.file_path(&base_content_blob_file_name);
             xdelta3::create_patch(env, base_blob_file_path.as_path(), &repo_paths.versioned_file, content_blob_file_path.as_path())?;
         }
     }
@@ -152,7 +152,7 @@ fn commit_version_common(
 
     let preview_blob_file_name = if versioned_file_is_image && image_magick::ready(env) {
         let preview_blob_file_name = new_version_id.to_file_name() + "_preview";
-        let preview_blob_file_path = repo_paths.repository_dir.join(&preview_blob_file_name);
+        let preview_blob_file_path = repo_paths.file_path(&preview_blob_file_name);
         image_magick::create_preview(env, repo_paths.versioned_file.as_path(), preview_blob_file_path.as_path())?;
         Some(preview_blob_file_name)
     } else {
@@ -297,7 +297,7 @@ pub enum PreviewResult {
 pub fn preview(repo_paths: &RepositoryPaths, version: &Version) -> PreviewResult {
     match version.preview_blob_file_name.as_ref() {
         None => PreviewResult::NoPreviewAvailable,
-        Some(preview_file_name) => PreviewResult::Ok(repo_paths.repository_dir.join(preview_file_name)),
+        Some(preview_file_name) => PreviewResult::Ok(repo_paths.file_path(preview_file_name)),
     }
 }
 
@@ -317,7 +317,7 @@ fn set_versioned_file_to_version(env: &Env, paths: &RepositoryPaths, data: &Repo
 }
 
 fn write_version_content(env: &Env, paths: &RepositoryPaths, data: &RepositoryData, version: &Version, output: &Path) -> BiverResult<()> {
-    let blob_path = paths.repository_dir.join(&version.content_blob_file_name);
+    let blob_path = paths.file_path(&version.content_blob_file_name);
 
     match version.content_blob_kind {
         ContentBlobKind::Full => {
@@ -325,7 +325,7 @@ fn write_version_content(env: &Env, paths: &RepositoryPaths, data: &RepositoryDa
         }
         ContentBlobKind::Patch(base_version_id) => {
             let base_version = data.version(base_version_id).expect("Version referenced by patch must exist");
-            let base_version_blob_path = paths.repository_dir.join(&base_version.content_blob_file_name);
+            let base_version_blob_path = paths.file_path(&base_version.content_blob_file_name);
             xdelta3::apply_patch(env, base_version_blob_path.as_path(), blob_path.as_path(), output)?;
         }
     }
