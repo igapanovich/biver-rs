@@ -2,7 +2,7 @@ use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, wa
 use crate::cli_arguments::{CliArguments, Command, ListCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
-use crate::repository_operations::{ApplyResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, VersionResult};
+use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, VersionResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -181,16 +181,20 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             }
         }
 
-        Command::Apply { versioned_file_path, target } => {
+        Command::Restore {
+            versioned_file_path,
+            output,
+            target,
+        } => {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
-            let result = repository_operations::apply(env, &repo_paths, &repo_data, &target)?;
+            let result = repository_operations::restore(env, &repo_paths, &repo_data, &target, output.as_deref())?;
 
             match result {
-                ApplyResult::Ok => success_ok(),
-                ApplyResult::BlockedByUncommittedChanges => error("Cannot apply because there are uncommitted changes"),
-                ApplyResult::InvalidTarget => error("Invalid target"),
+                RestoreResult::Ok => success_ok(),
+                RestoreResult::BlockedByUncommittedChanges => error("Cannot restore to the versioned file because there are uncommitted changes"),
+                RestoreResult::InvalidTarget => error("Invalid target"),
             }
         }
 

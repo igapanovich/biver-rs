@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const DEFAULT_BRANCH: &str = "main";
@@ -248,28 +248,30 @@ pub fn check_out(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Reposi
     Ok(CheckOutResult::Ok)
 }
 
-pub enum ApplyResult {
+pub enum RestoreResult {
     Ok,
     BlockedByUncommittedChanges,
     InvalidTarget,
 }
 
-pub fn apply(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryData, target: &str) -> BiverResult<ApplyResult> {
+pub fn restore(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryData, target: &str, output: Option<&Path>) -> BiverResult<RestoreResult> {
     let has_uncommitted_changes = has_uncommitted_changes(repo_paths, repo_data)?;
 
     if has_uncommitted_changes {
-        return Ok(ApplyResult::BlockedByUncommittedChanges);
+        return Ok(RestoreResult::BlockedByUncommittedChanges);
     }
 
     let target_version = match resolve_target(repo_data, target) {
-        TargetResult::Invalid => return Ok(ApplyResult::InvalidTarget),
+        TargetResult::Invalid => return Ok(RestoreResult::InvalidTarget),
         TargetResult::Branch(branch) => repo_data.version(repo_data.branches[branch]).expect("Branch resolved from target must exist"),
         TargetResult::Version(version) => version,
     };
 
-    set_versioned_file_to_version(env, repo_paths, repo_data, target_version)?;
+    let output = output.unwrap_or_else(|| &repo_paths.versioned_file);
 
-    Ok(ApplyResult::Ok)
+    write_version_content(env, repo_paths, repo_data, target_version, output)?;
+
+    Ok(RestoreResult::Ok)
 }
 
 pub enum VersionResult<'a> {
@@ -311,16 +313,20 @@ fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResul
 }
 
 fn set_versioned_file_to_version(env: &Env, paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> BiverResult<()> {
+    write_version_content(env, paths, data, version, &paths.versioned_file)
+}
+
+fn write_version_content(env: &Env, paths: &RepositoryPaths, data: &RepositoryData, version: &Version, output: &Path) -> BiverResult<()> {
     let blob_path = paths.repository_dir.join(&version.content_blob_file_name);
 
     match version.content_blob_kind {
         ContentBlobKind::Full => {
-            fs::copy(&blob_path, &paths.versioned_file)?;
+            fs::copy(&blob_path, output)?;
         }
         ContentBlobKind::Patch(base_version_id) => {
             let base_version = data.version(base_version_id).expect("Version referenced by patch must exist");
             let base_version_blob_path = paths.repository_dir.join(&base_version.content_blob_file_name);
-            xdelta3::apply_patch(env, base_version_blob_path.as_path(), blob_path.as_path(), &paths.versioned_file)?;
+            xdelta3::apply_patch(env, base_version_blob_path.as_path(), blob_path.as_path(), output)?;
         }
     }
 

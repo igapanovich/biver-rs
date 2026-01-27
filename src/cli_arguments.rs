@@ -88,11 +88,15 @@ pub enum Command {
     },
 
     /// Set versioned file to the state it was in when the specified version was created
-    Apply {
+    Restore {
         #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
 
-        /// Target branch or version to apply. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
+        /// Output file path. If not specified, the versioned file path will be used.
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
+
+        /// Target branch or version to restore. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
         target: String,
     },
 

@@ -27,7 +27,9 @@ pub fn create_patch(env: &impl XDelta3Env, old: &Path, new: &Path, patch: &Path)
 }
 
 pub fn apply_patch(env: &impl XDelta3Env, old: &Path, patch: &Path, new: &Path) -> io::Result<()> {
-    fs::remove_file(new)?;
+    if fs::exists(new)? {
+        fs::remove_file(new)?;
+    }
 
     let status = xdelta3_command(env)
         .arg("-d") // decompress
