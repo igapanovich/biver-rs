@@ -105,16 +105,23 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             let repo_paths = repository_operations::paths(versioned_file_path);
             let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
 
-            let version_and_preview = |target| match repository_operations::version(&repo_data, target) {
-                VersionResult::InvalidTarget => error(format!("Invalid target {}", target)),
-                VersionResult::Ok(version) => match repository_operations::preview(&repo_paths, &version) {
-                    PreviewResult::NoPreviewAvailable => error(format!("No preview available for {}", target)),
+            let version_and_preview = |target: Option<&str>| {
+                let version = match target {
+                    None => repo_data.head_version(),
+                    Some(target) => match repository_operations::version(&repo_data, target) {
+                        VersionResult::InvalidTarget => return error(format!("Invalid target {}", target)),
+                        VersionResult::Ok(version) => version,
+                    },
+                };
+
+                match repository_operations::preview(&repo_paths, &version) {
+                    PreviewResult::NoPreviewAvailable => error(format!("No preview available for {}", version.id.bs58())),
                     PreviewResult::Ok(preview) => Ok((version, preview)),
-                },
+                }
             };
 
-            let (version1, preview_file_path1) = version_and_preview(&target1)?;
-            let (version2, preview_file_path2) = version_and_preview(&target2)?;
+            let (version1, preview_file_path1) = version_and_preview(Some(&target1))?;
+            let (version2, preview_file_path2) = version_and_preview(target2.as_deref())?;
 
             let formatted_versions = formatting::format_versions(&repo_data, &vec![version1, version2]);
             let description1 = &formatted_versions[0];
