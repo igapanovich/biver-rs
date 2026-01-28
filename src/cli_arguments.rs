@@ -51,8 +51,8 @@ pub enum Command {
         /// Target branch or version to compare. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
         target1: String,
 
-        /// Target branch or version to compare. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
-        target2: String,
+        /// (Default: head) Target branch or version to compare. May be one of the following (in order of precedence): branch name, version id, head offset (~, ~1, ~2), version nickname (adjective-noun, adjectivenoun, an).
+        target2: Option<String>,
     },
 
     /// Commit current changes to a new version
