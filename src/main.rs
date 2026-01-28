@@ -1,5 +1,5 @@
 use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, warning};
-use crate::cli_arguments::{CliArguments, Command, ListCommand};
+use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
 use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, VersionResult};
@@ -9,7 +9,7 @@ use std::io;
 use std::process::ExitCode;
 
 mod biver_result;
-mod cli_arguments;
+mod command_line_arguments;
 mod env;
 mod formatting;
 mod hash;
@@ -24,14 +24,14 @@ mod viewer;
 mod xdelta3;
 
 fn main() -> ExitCode {
-    let cli_arguments = CliArguments::parse();
+    let arguments = CommandLineArguments::parse();
 
     let env = Env {
-        xdelta3_path: cli_arguments.xdelta3_path,
-        image_magick_path: cli_arguments.image_magick_path,
+        xdelta3_path: arguments.xdelta3_path,
+        image_magick_path: arguments.image_magick_path,
     };
 
-    match run_command(&env, cli_arguments.command) {
+    match run_command(&env, arguments.command) {
         Ok(()) => ExitCode::SUCCESS,
 
         Err(BiverError {

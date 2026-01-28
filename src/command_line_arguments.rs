@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-pub struct CliArguments {
+pub struct CommandLineArguments {
     /// Path to xdelta3 executable. If not specified, it will be searched in PATH.
     #[arg(global(true), long = "xdelta3-path", env = "BIVER_XDELTA3_PATH")]
     pub xdelta3_path: Option<PathBuf>,
