@@ -4,17 +4,17 @@ use egui::{ColorImage, Context, Image, Key, Rect, TextureHandle, TextureOptions,
 use image::ImageFormat;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::Path;
 
-pub fn show_preview(image_path: PathBuf) -> BiverResult<()> {
-    let image = egui_image_from_file(&image_path)?;
+pub fn show_preview(image_path: &Path) -> BiverResult<()> {
+    let image = egui_image_from_file(image_path)?;
 
     eframe::run_native("", egui_options(), Box::new(|cc| Ok(Box::new(PreviewApp::new(cc, image)))))?;
 
     Ok(())
 }
 
-pub fn show_comparison(image_path1: PathBuf, description1: &str, image_path2: PathBuf, description2: &str) -> BiverResult<()> {
+pub fn show_comparison(image_path1: &Path, description1: &str, image_path2: &Path, description2: &str) -> BiverResult<()> {
     let image1 = egui_image_from_file(&image_path1)?;
     let image2 = egui_image_from_file(&image_path2)?;
 
@@ -27,7 +27,7 @@ pub fn show_comparison(image_path1: PathBuf, description1: &str, image_path2: Pa
     Ok(())
 }
 
-fn egui_image_from_file(path: &PathBuf) -> BiverResult<ColorImage> {
+fn egui_image_from_file(path: &Path) -> BiverResult<ColorImage> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let image = image::load(reader, ImageFormat::Jpeg)?;

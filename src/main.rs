@@ -92,7 +92,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                 PreviewResult::Ok(preview_file_path) => preview_file_path,
             };
 
-            viewer::show_preview(preview_file_path)?;
+            viewer::show_preview(&preview_file_path)?;
 
             Ok(())
         }
@@ -120,7 +120,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             let description1 = &formatted_versions[0];
             let description2 = &formatted_versions[1];
 
-            viewer::show_comparison(preview_file_path1, description1, preview_file_path2, description2)?;
+            viewer::show_comparison(&preview_file_path1, description1, &preview_file_path2, description2)?;
 
             success()
         }
