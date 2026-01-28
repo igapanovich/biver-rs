@@ -114,13 +114,12 @@ fn commit_version_common(
         match repo_data.as_ref() {
             None => (ContentBlobKind::Full, ""),
             Some(repo_data) => {
-                let head_and_ancestors = repo_data.head_and_ancestors();
-                let closest_full_ancestor_position = head_and_ancestors.iter().position(|v| v.content_blob_kind == ContentBlobKind::Full);
-                match closest_full_ancestor_position {
+                let closest_full_ancestor = repo_data.iter_head_and_ancestors().enumerate().find(|(_, v)| v.content_blob_kind == ContentBlobKind::Full);
+
+                match closest_full_ancestor {
                     None => (ContentBlobKind::Full, ""),
-                    Some(pos) if pos >= MAX_CONSECUTIVE_PATCHES => (ContentBlobKind::Full, ""),
-                    Some(pos) => {
-                        let closest_full_ancestor = head_and_ancestors[pos];
+                    Some((pos, _)) if pos >= MAX_CONSECUTIVE_PATCHES => (ContentBlobKind::Full, ""),
+                    Some((_, closest_full_ancestor)) => {
                         let blob_kind = ContentBlobKind::Patch(closest_full_ancestor.id);
                         (blob_kind, closest_full_ancestor.content_blob_file_name.as_str())
                     }
@@ -394,8 +393,7 @@ fn resolve_target<'b, 'v>(repo_data: &'v RepositoryData, target: &'b str) -> Tar
     if target.chars().nth(0) == Some('~')
         && let Ok(offset) = usize::from_str(&target[1..])
     {
-        let head_and_ancestors = repo_data.head_and_ancestors();
-        let target_version = head_and_ancestors.get(offset);
+        let target_version = repo_data.iter_head_and_ancestors().nth(offset);
         return match target_version {
             None => TargetResult::Invalid,
             Some(target_version) => TargetResult::Version(target_version),

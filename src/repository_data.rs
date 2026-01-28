@@ -64,17 +64,11 @@ impl RepositoryData {
             && no_two_branches_reference_the_same_version
     }
 
-    pub fn head_and_ancestors(&self) -> Vec<&Version> {
-        let head_version = self.head_version();
-        let mut versions_from_head_to_root = vec![head_version];
-        let mut current_version = head_version;
-
-        while let Some(parent) = current_version.parent {
-            current_version = self.version(parent).expect("The parent version must always exist.");
-            versions_from_head_to_root.push(current_version);
+    pub fn iter_head_and_ancestors(&'_ self) -> VersionAndAncestors<'_> {
+        VersionAndAncestors {
+            repository_data: self,
+            current_version: Some(&self.head_version()),
         }
-
-        versions_from_head_to_root
     }
 
     pub fn branch_leaf(&self, branch: &str) -> Option<&Version> {
@@ -106,4 +100,23 @@ pub enum Head {
 pub enum ContentBlobKind {
     Full,
     Patch(VersionId),
+}
+
+pub struct VersionAndAncestors<'a> {
+    repository_data: &'a RepositoryData,
+    current_version: Option<&'a Version>,
+}
+
+impl<'a> Iterator for VersionAndAncestors<'a> {
+    type Item = &'a Version;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.current_version {
+            None => None,
+            Some(version) => {
+                self.current_version = version.parent.and_then(|parent_id| self.repository_data.version(parent_id));
+                Some(version)
+            }
+        }
+    }
 }
