@@ -11,6 +11,7 @@ use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 
 const DEFAULT_BRANCH: &str = "main";
 
@@ -312,26 +313,28 @@ fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResul
     let backup4 = paths.file_path("data_backup4.json");
     let backup5 = paths.file_path("data_backup5.json");
 
-    if backup4.exists() {
-        fs::copy(&backup4, &backup5)?;
-    }
-
-    if backup3.exists() {
-        fs::copy(&backup3, &backup4)?;
-    }
-
-    if backup2.exists() {
-        fs::copy(&backup2, &backup3)?;
-    }
-
-    if backup1.exists() {
-        fs::copy(&backup1, &backup2)?;
-    }
-
-    fs::copy(&paths.data_file, &backup1)?;
+    rotate_backup(&backup4, &backup5, Duration::from_hours(24))?;
+    rotate_backup(&backup3, &backup4, Duration::from_hours(5))?;
+    rotate_backup(&backup2, &backup3, Duration::from_hours(1))?;
+    rotate_backup(&backup1, &backup2, Duration::from_mins(5))?;
+    rotate_backup(&paths.data_file, &backup1, Duration::from_secs(10))?;
 
     let data_file_content = serde_json::to_string_pretty(data)?;
     fs::write(&paths.data_file, data_file_content)?;
+
+    Ok(())
+}
+
+fn rotate_backup(previous: &Path, next: &Path, interval: Duration) -> BiverResult<()> {
+    if !previous.exists() {
+        return Ok(());
+    }
+
+    if next.exists() && next.metadata()?.modified()? > SystemTime::now() - interval {
+        return Ok(());
+    }
+
+    fs::copy(previous, next)?;
 
     Ok(())
 }
