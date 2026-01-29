@@ -64,11 +64,27 @@ impl RepositoryData {
             && no_two_branches_reference_the_same_version
     }
 
-    pub fn iter_head_and_ancestors(&'_ self) -> VersionAndAncestors<'_> {
+    pub fn iter_ancestors(&'_ self, version_id: VersionId) -> impl Iterator<Item = &'_ Version> {
+        Ancestors {
+            repository_data: self,
+            version_id: Some(version_id),
+        }
+    }
+
+    pub fn iter_version_and_ancestors(&'_ self, version_id: VersionId) -> impl Iterator<Item = &'_ Version> {
+        let version = self.version(version_id);
         VersionAndAncestors {
             repository_data: self,
-            current_version: Some(&self.head_version()),
+            current_version: version,
         }
+    }
+
+    pub fn iter_head_and_ancestors(&'_ self) -> impl Iterator<Item = &'_ Version> {
+        self.iter_version_and_ancestors(self.head_version().id)
+    }
+
+    pub fn iter_children(&self, version_id: VersionId) -> impl Iterator<Item = &'_ Version> {
+        self.versions.iter().filter(move |v| v.parent == Some(version_id))
     }
 
     pub fn branch_leaf(&self, branch: &str) -> Option<&Version> {
@@ -96,10 +112,25 @@ pub enum Head {
     Version(VersionId),
 }
 
+impl Head {
+    pub fn branch(&self) -> Option<&str> {
+        match self {
+            Head::Branch(branch) => Some(branch),
+            Head::Version(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContentBlobKind {
     Full,
     Patch(VersionId),
+}
+
+impl ContentBlobKind {
+    pub fn is_patch(&self) -> bool {
+        matches!(self, ContentBlobKind::Patch(_))
+    }
 }
 
 pub struct VersionAndAncestors<'a> {
@@ -115,6 +146,26 @@ impl<'a> Iterator for VersionAndAncestors<'a> {
             None => None,
             Some(version) => {
                 self.current_version = version.parent.and_then(|parent_id| self.repository_data.version(parent_id));
+                Some(version)
+            }
+        }
+    }
+}
+
+pub struct Ancestors<'a> {
+    repository_data: &'a RepositoryData,
+    version_id: Option<VersionId>,
+}
+
+impl<'a> Iterator for Ancestors<'a> {
+    type Item = &'a Version;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.version_id {
+            None => None,
+            Some(version_id) => {
+                let version = self.repository_data.version(version_id).expect("Iterator created with invalid data");
+                self.version_id = version.parent;
                 Some(version)
             }
         }

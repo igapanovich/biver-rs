@@ -2,7 +2,7 @@ use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, wa
 use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
-use crate::repository_operations::{CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, VersionResult};
+use crate::repository_operations::{AmendResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, VersionResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -137,13 +137,14 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             branch,
             description,
         } => {
-            let description = description.unwrap_or_default();
             let repo_paths = repository_operations::paths(versioned_file_path);
             let repo_data = repository_operations::data(&repo_paths)?;
 
             let result = match repo_data {
-                RepositoryDataResult::NotInitialized => repository_operations::commit_initial_version(env, &repo_paths, branch.as_deref(), &description)?,
-                RepositoryDataResult::Initialized(mut repo_data) => repository_operations::commit_version(env, &repo_paths, &mut repo_data, branch.as_deref(), &description)?,
+                RepositoryDataResult::NotInitialized => repository_operations::commit_initial_version(env, &repo_paths, branch.as_deref(), description.as_deref())?,
+                RepositoryDataResult::Initialized(mut repo_data) => {
+                    repository_operations::commit_version(env, &repo_paths, &mut repo_data, branch.as_deref(), description.as_deref())?
+                }
             };
 
             match result {
@@ -151,6 +152,33 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                 CommitResult::NothingToCommit => warning("Nothing to commit"),
                 CommitResult::BranchRequired => error("Branch required"),
                 CommitResult::BranchAlreadyExists => error("Branch already exists"),
+            }
+        }
+
+        Command::Amend {
+            versioned_file_path,
+            confirmed,
+            description,
+        } => {
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+
+            if !confirmed {
+                println!("Are you sure you want to overwrite the head version? (y/N)");
+                let confirmed = read_yes_no_input()?.unwrap_or(false);
+                if !confirmed {
+                    return success();
+                }
+            }
+
+            let result = repository_operations::amend_head(env, &repo_paths, &mut repo_data, description.as_deref())?;
+
+            match result {
+                AmendResult::Ok => success_ok(),
+                AmendResult::NoUncommittedChanges => warning("No uncommitted changes"),
+                AmendResult::HeadMustBeBranch => error("Head must be on a branch"),
+                AmendResult::CannotAmendParent => error("Cannot amend head version because it has children"),
+                AmendResult::HeadEqualsParent => error("Amend would result in head version file content being identical to its parent's file content. Use hard reset instead."),
             }
         }
 
@@ -164,7 +192,7 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
 
             if !confirmed {
                 println!("Are you sure you want to discard uncommitted changes? (y/N)");
-                let confirmed = read_yes_no_input()?;
+                let confirmed = read_yes_no_input()?.unwrap_or(false);
                 if !confirmed {
                     return success();
                 }
@@ -221,10 +249,19 @@ fn success() -> BiverResult<()> {
     Ok(())
 }
 
-fn read_yes_no_input() -> BiverResult<bool> {
+fn read_yes_no_input() -> BiverResult<Option<bool>> {
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
-    Ok(input.trim().eq_ignore_ascii_case("y"))
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("y") {
+        return Ok(Some(true));
+    }
+
+    if input.eq_ignore_ascii_case("n") {
+        return Ok(Some(false));
+    }
+
+    Ok(None)
 }
 
 trait RepositoryDataResultExtensions {
