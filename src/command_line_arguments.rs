@@ -70,6 +70,20 @@ pub enum Command {
         description: Option<String>,
     },
 
+    /// Amend the head version
+    Amend {
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
+        versioned_file_path: PathBuf,
+
+        /// Do not ask for confirmation
+        #[arg(short = 'y', long = "yes")]
+        confirmed: bool,
+
+        /// Description of the new version
+        #[arg(value_name = "DESCRIPTION")]
+        description: Option<String>,
+    },
+
     /// Discard uncommitted changes
     Discard {
         #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
