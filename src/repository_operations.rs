@@ -406,6 +406,32 @@ pub fn preview(repo_paths: &RepositoryPaths, version: &Version) -> PreviewResult
     }
 }
 
+pub enum RenameBranchResult {
+    Ok,
+    AnotherBranchExistsWithSameName,
+    BranchDoesNotExist,
+}
+
+pub fn rename_branch(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, old_name: &str, new_name: &str) -> BiverResult<RenameBranchResult> {
+    if old_name == new_name {
+        return Ok(RenameBranchResult::Ok);
+    }
+
+    if repo_data.branches.contains_key(new_name) {
+        return Ok(RenameBranchResult::AnotherBranchExistsWithSameName);
+    }
+
+    let Some(branch_version_id) = repo_data.branches.remove(old_name) else {
+        return Ok(RenameBranchResult::BranchDoesNotExist);
+    };
+
+    repo_data.branches.insert(new_name.to_string(), branch_version_id);
+
+    write_data_file(repo_data, repo_paths)?;
+
+    Ok(RenameBranchResult::Ok)
+}
+
 fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResult<()> {
     if !data.valid() {
         panic!("Repository data is not valid: {:#?}", data);

@@ -1,8 +1,10 @@
 use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, warning};
-use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand};
+use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand, RenameCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
-use crate::repository_operations::{AmendResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, ResetResult, RestoreResult, RewordResult, VersionResult};
+use crate::repository_operations::{
+    AmendResult, CheckOutResult, CommitResult, PreviewResult, RenameBranchResult, RepositoryDataResult, ResetResult, RestoreResult, RewordResult, VersionResult,
+};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -282,6 +284,25 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                 RestoreResult::InvalidTarget => error("Invalid target"),
             }
         }
+
+        Command::Rename(rename_command) => match rename_command {
+            RenameCommand::Branch {
+                versioned_file_path,
+                old_name,
+                new_name,
+            } => {
+                let repo_paths = repository_operations::paths(versioned_file_path);
+                let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+
+                let result = repository_operations::rename_branch(&repo_paths, &mut repo_data, &old_name, &new_name)?;
+
+                match result {
+                    RenameBranchResult::Ok => success_ok(),
+                    RenameBranchResult::AnotherBranchExistsWithSameName => error("Another branch exists with the same name"),
+                    RenameBranchResult::BranchDoesNotExist => error("Branch does not exist"),
+                }
+            }
+        },
 
         Command::Dependencies => {
             formatting::print_dependencies(xdelta3::ready(env), image_magick::ready(env));

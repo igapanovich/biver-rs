@@ -146,6 +146,10 @@ pub enum Command {
         target: String,
     },
 
+    /// Rename commands
+    #[command(subcommand)]
+    Rename(RenameCommand),
+
     /// List dependencies and check their statuses
     Dependencies,
 }
@@ -156,5 +160,20 @@ pub enum ListCommand {
     Branches {
         #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RenameCommand {
+    /// Rename a branch
+    Branch {
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
+        versioned_file_path: PathBuf,
+
+        #[arg(value_name = "OLD_NAME")]
+        old_name: String,
+
+        #[arg(value_name = "NEW_NAME")]
+        new_name: String,
     },
 }
