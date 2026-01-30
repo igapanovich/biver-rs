@@ -37,7 +37,7 @@ impl RepositoryData {
     pub fn valid(&self) -> bool {
         let there_is_exactly_one_root = self.versions.iter().filter(|v| v.parent.is_none()).count() == 1;
 
-        let there_are_no_invalid_parent_references = self.versions.iter().all(|v| {
+        let all_parent_references_are_valid = self.versions.iter().all(|v| {
             if let Some(parent) = &v.parent {
                 self.versions.iter().any(|v2| v2.id == *parent)
             } else {
@@ -57,11 +57,26 @@ impl RepositoryData {
             self.branches.values().count() == distinct_branch_values.len()
         };
 
+        let all_versions_belong_to_branches = {
+            let mut versions_belonging_to_branches = HashSet::new();
+
+            for branch_leaf_id in self.branches.values() {
+                for v in self.iter_version_and_ancestors(*branch_leaf_id) {
+                    if !versions_belonging_to_branches.insert(v.id) {
+                        break;
+                    }
+                }
+            }
+
+            versions_belonging_to_branches.len() == self.versions.len()
+        };
+
         there_is_exactly_one_root
-            && there_are_no_invalid_parent_references
+            && all_parent_references_are_valid
             && head_reference_is_valid
             && all_branches_reference_valid_versions
             && no_two_branches_reference_the_same_version
+            && all_versions_belong_to_branches
     }
 
     pub fn iter_ancestors(&'_ self, version_id: VersionId) -> impl Iterator<Item = &'_ Version> {
