@@ -2,7 +2,7 @@ use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, wa
 use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
-use crate::repository_operations::{AmendResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, RewordResult, VersionResult};
+use crate::repository_operations::{AmendResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, ResetResult, RestoreResult, RewordResult, VersionResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -11,6 +11,7 @@ use std::process::ExitCode;
 mod biver_result;
 mod command_line_arguments;
 mod env;
+mod extensions;
 mod formatting;
 mod hash;
 mod image_magick;
@@ -217,6 +218,39 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             repository_operations::discard(env, &repo_paths, &repo_data)?;
 
             success_ok()
+        }
+
+        Command::Reset {
+            versioned_file_path,
+            hard,
+            confirmed,
+            target,
+        } => {
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+
+            if !confirmed {
+                println!("Are you sure you want to reset? (y/N)");
+                let confirmed = read_yes_no_input()?.unwrap_or(false);
+                if !confirmed {
+                    return success();
+                }
+            }
+
+            let result = repository_operations::reset(&repo_paths, &mut repo_data, target.as_str())?;
+
+            match result {
+                ResetResult::Ok => {
+                    if hard {
+                        repository_operations::discard(env, &repo_paths, &repo_data)?;
+                    }
+
+                    success_ok()
+                }
+                ResetResult::HeadMustBeBranch => error("Head must be on a branch"),
+                ResetResult::InvalidTarget => error("Invalid target"),
+                ResetResult::CannotLeaveOrphans => error("Reset would leave orphaned versions. Make sure none of the erased versions have children outside of the reset range."),
+            }
         }
 
         Command::Checkout { versioned_file_path, target } => {

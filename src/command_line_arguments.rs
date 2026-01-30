@@ -107,6 +107,23 @@ pub enum Command {
         confirmed: bool,
     },
 
+    /// Reset the current branch back to the specified version
+    Reset {
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
+        versioned_file_path: PathBuf,
+
+        /// Also reset the versioned file
+        #[arg(long = "hard")]
+        hard: bool,
+
+        /// Do not ask for confirmation
+        #[arg(short = 'y', long = "yes")]
+        confirmed: bool,
+
+        /// Target version to reset to. Must be a version ID.
+        target: String,
+    },
+
     /// Check out a specific branch or version
     Checkout {
         #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]

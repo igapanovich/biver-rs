@@ -1,5 +1,6 @@
 use crate::biver_result::BiverResult;
 use crate::env::Env;
+use crate::extensions::CountIsAtLeast;
 use crate::repository_data::{ContentBlobKind, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
@@ -248,7 +249,7 @@ pub enum RewordResult {
 }
 
 pub fn reword(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str, description: &str) -> BiverResult<RewordResult> {
-    let Some(target_version) = repo_data.versions.iter_mut().find(|v| v.id.bs58() == target) else {
+    let Some(target_version) = resolve_target_strict_mut(repo_data, target) else {
         return Ok(RewordResult::InvalidTarget);
     };
 
@@ -278,6 +279,50 @@ pub fn discard(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryDa
     let head_version = repo_data.head_version();
     set_versioned_file_to_version(env, repo_paths, repo_data, &head_version)?;
     Ok(())
+}
+
+pub enum ResetResult {
+    Ok,
+    HeadMustBeBranch,
+    InvalidTarget,
+    CannotLeaveOrphans,
+}
+
+pub fn reset(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str) -> BiverResult<ResetResult> {
+    let Some(branch) = repo_data.head.branch() else {
+        return Ok(ResetResult::HeadMustBeBranch);
+    };
+
+    let Some(target_version) = resolve_target_strict(repo_data, target) else {
+        return Ok(ResetResult::InvalidTarget);
+    };
+    let target_version_id = target_version.id;
+
+    let erased_versions: Vec<_> = repo_data.iter_head_and_ancestors().take_while(|v| v.id != target_version.id).collect();
+
+    let erased_versions_have_root = erased_versions.iter().any(|v| v.is_root());
+    if erased_versions_have_root {
+        return Ok(ResetResult::InvalidTarget);
+    }
+
+    let head_has_children = repo_data.iter_children(repo_data.head_version().id).count_is_at_least(1);
+    if head_has_children {
+        return Ok(ResetResult::CannotLeaveOrphans);
+    }
+
+    let erased_versions_have_multi_parents = erased_versions.iter().any(|v| repo_data.iter_children(v.id).count_is_at_least(2));
+    if erased_versions_have_multi_parents {
+        return Ok(ResetResult::CannotLeaveOrphans);
+    }
+
+    let erased_version_ids: Vec<_> = erased_versions.iter().map(|v| v.id).collect();
+
+    repo_data.versions.retain(|v| !erased_version_ids.contains(&v.id));
+    repo_data.branches.insert(branch.to_string(), target_version_id);
+
+    write_data_file(&repo_data, repo_paths)?;
+
+    Ok(ResetResult::Ok)
 }
 
 pub enum CheckOutResult {
@@ -471,6 +516,40 @@ fn resolve_target<'b, 'v>(repo_data: &'v RepositoryData, target: &'b str) -> Tar
     }
 
     TargetResult::Invalid
+}
+
+fn resolve_target_strict_mut<'v>(repo_data: &'v mut RepositoryData, target: &str) -> Option<&'v mut Version> {
+    if target.is_empty() {
+        return None;
+    }
+
+    let target_as_version_id = VersionId::from_bs58(target);
+
+    if let Some(target_as_version_id) = target_as_version_id {
+        let version = repo_data.versions.iter_mut().find(|v| v.id == target_as_version_id);
+        if let Some(version) = version {
+            return Some(version);
+        }
+    }
+
+    None
+}
+
+fn resolve_target_strict<'v>(repo_data: &'v RepositoryData, target: &str) -> Option<&'v Version> {
+    if target.is_empty() {
+        return None;
+    }
+
+    let target_as_version_id = VersionId::from_bs58(target);
+
+    if let Some(target_as_version_id) = target_as_version_id {
+        let version = repo_data.versions.iter().find(|v| v.id == target_as_version_id);
+        if let Some(version) = version {
+            return Some(version);
+        }
+    }
+
+    None
 }
 
 fn nickname_matches(nickname: &str, input: &str) -> bool {

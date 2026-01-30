@@ -106,6 +106,12 @@ pub struct Version {
     pub preview_blob_file_name: Option<String>,
 }
 
+impl Version {
+    pub fn is_root(&self) -> bool {
+        self.parent.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Head {
     Branch(String),
