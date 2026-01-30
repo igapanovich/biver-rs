@@ -2,7 +2,7 @@ use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, wa
 use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
-use crate::repository_operations::{AmendResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, VersionResult};
+use crate::repository_operations::{AmendResult, CheckOutResult, CommitResult, PreviewResult, RepositoryDataResult, RestoreResult, RewordResult, VersionResult};
 use clap::Parser;
 use colored::Colorize;
 use std::io;
@@ -179,6 +179,22 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                 AmendResult::HeadMustBeBranch => error("Head must be on a branch"),
                 AmendResult::CannotAmendParent => error("Cannot amend head version because it has children"),
                 AmendResult::HeadEqualsParent => error("Amend would result in head version file content being identical to its parent's file content. Use hard reset instead."),
+            }
+        }
+
+        Command::Reword {
+            versioned_file_path,
+            target,
+            description,
+        } => {
+            let repo_paths = repository_operations::paths(versioned_file_path);
+            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+
+            let result = repository_operations::reword(&repo_paths, &mut repo_data, &target, &description)?;
+
+            match result {
+                RewordResult::Ok => success_ok(),
+                RewordResult::InvalidTarget => error("Invalid target"),
             }
         }
 

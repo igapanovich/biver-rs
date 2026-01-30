@@ -84,6 +84,19 @@ pub enum Command {
         description: Option<String>,
     },
 
+    /// Change description of the specified version
+    Reword {
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
+        versioned_file_path: PathBuf,
+
+        /// Target version to reword. Must be a version ID.
+        target: String,
+
+        /// New description
+        #[arg(value_name = "DESCRIPTION")]
+        description: String,
+    },
+
     /// Discard uncommitted changes
     Discard {
         #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
