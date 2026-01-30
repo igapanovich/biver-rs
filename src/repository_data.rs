@@ -2,7 +2,6 @@ use crate::version_id::VersionId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RepositoryData {
@@ -26,12 +25,6 @@ impl RepositoryData {
         };
 
         head_version.expect("The head version must always exist.")
-    }
-
-    pub fn branch_on_version(&self, version_id: &VersionId) -> Option<&str> {
-        self.branches
-            .iter()
-            .find_map(|(branch, version)| if version == version_id { Some(branch.deref()) } else { None })
     }
 
     pub fn valid(&self) -> bool {
