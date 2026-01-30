@@ -164,7 +164,7 @@ pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut R
         write_versioned_file_to_preview_blob(env, repo_paths, &preview_blob_file_name)?;
     }
     write_versioned_file_to_content_blob(env, repo_paths, &repo_data, &new_version)?;
-    write_data_file(&repo_data, repo_paths)?;
+    write_data_file(repo_data, repo_paths)?;
 
     Ok(CommitResult::Ok)
 }
@@ -197,7 +197,9 @@ pub fn amend_head(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Repos
         return Ok(AmendResult::CannotAmendParent);
     }
 
-    if let Some(parent_id) = head.parent && repo_data.version(parent_id).unwrap().versioned_file_xxh3_128 == versioned_file_xxh3_128 {
+    if let Some(parent_id) = head.parent
+        && repo_data.version(parent_id).unwrap().versioned_file_xxh3_128 == versioned_file_xxh3_128
+    {
         return Ok(AmendResult::HeadEqualsParent);
     }
 
@@ -238,6 +240,23 @@ pub fn amend_head(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Repos
     write_data_file(&repo_data, repo_paths)?;
 
     Ok(AmendResult::Ok)
+}
+
+pub enum RewordResult {
+    Ok,
+    InvalidTarget,
+}
+
+pub fn reword(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, target: &str, description: &str) -> BiverResult<RewordResult> {
+    let Some(target_version) = repo_data.versions.iter_mut().find(|v| v.id.bs58() == target) else {
+        return Ok(RewordResult::InvalidTarget);
+    };
+
+    target_version.description = description.to_string();
+
+    write_data_file(repo_data, repo_paths)?;
+
+    Ok(RewordResult::Ok)
 }
 
 pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<bool> {
