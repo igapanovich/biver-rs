@@ -1,9 +1,9 @@
 use crate::biver_result::{BiverError, BiverErrorSeverity, BiverResult, error, warning};
-use crate::command_line_arguments::{Command, CommandLineArguments, ListCommand, RenameCommand};
+use crate::command_line_arguments::{Command, CommandLineArguments, DeleteCommand, ListCommand, RenameCommand};
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
 use crate::repository_operations::{
-    AmendResult, CheckOutResult, CommitResult, PreviewResult, RenameBranchResult, RepositoryDataResult, ResetResult, RestoreResult, RewordResult, VersionResult,
+    AmendResult, CheckOutResult, CommitResult, DeleteBranchResult, PreviewResult, RenameBranchResult, RepositoryDataResult, ResetResult, RestoreResult, RewordResult, VersionResult,
 };
 use clap::Parser;
 use colored::Colorize;
@@ -300,6 +300,29 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                     RenameBranchResult::Ok => success_ok(),
                     RenameBranchResult::AnotherBranchExistsWithSameName => error("Another branch exists with the same name"),
                     RenameBranchResult::BranchDoesNotExist => error("Branch does not exist"),
+                }
+            }
+        },
+
+        Command::Delete(delete_command) => match delete_command {
+            DeleteCommand::Branch { versioned_file_path, confirmed, name } => {
+                let repo_paths = repository_operations::paths(versioned_file_path);
+                let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+
+                if !confirmed {
+                    println!("Are you sure you want to delete this branch? (y/N)");
+                    let confirmed = read_yes_no_input()?.unwrap_or(false);
+                    if !confirmed {
+                        return success();
+                    }
+                }
+
+                let result = repository_operations::delete_branch(&repo_paths, &mut repo_data, &name)?;
+
+                match result {
+                    DeleteBranchResult::Ok => success_ok(),
+                    DeleteBranchResult::BranchDoesNotExist => error("Branch does not exist"),
+                    DeleteBranchResult::CannotDeleteHead => error("Cannot delete the version currently pointed at by HEAD"),
                 }
             }
         },

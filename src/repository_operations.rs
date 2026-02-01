@@ -6,7 +6,7 @@ use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
 use crate::{biver_result, hash, image_magick, known_file_types, nickname, xdelta3};
 use chrono::Utc;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
@@ -430,6 +430,52 @@ pub fn rename_branch(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryDat
     write_data_file(repo_data, repo_paths)?;
 
     Ok(RenameBranchResult::Ok)
+}
+
+pub enum DeleteBranchResult {
+    Ok,
+    BranchDoesNotExist,
+    CannotDeleteHead,
+}
+
+pub fn delete_branch(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, name: &String) -> BiverResult<DeleteBranchResult> {
+    if !repo_data.branches.contains_key(name) {
+        return Ok(DeleteBranchResult::BranchDoesNotExist);
+    }
+
+    let branch_leaf_version_id = repo_data.branches[name];
+
+    let versions_on_other_branches = {
+        let mut result = HashSet::new();
+        let leaf_ids = repo_data.branches.iter().filter(|(b, _)| *b != name).map(|(_, v)| *v);
+        for leaf_id in leaf_ids {
+            for version in repo_data.iter_version_and_ancestors(leaf_id) {
+                if !result.insert(version.id) {
+                    break;
+                }
+            }
+        }
+        result
+    };
+
+    let erased_version_ids = repo_data
+        .iter_version_and_ancestors(branch_leaf_version_id)
+        .map(|v| v.id)
+        .take_while(|id| !versions_on_other_branches.contains(id))
+        .collect::<Vec<_>>();
+
+    let head_version = repo_data.head_version();
+
+    if erased_version_ids.contains(&head_version.id) {
+        return Ok(DeleteBranchResult::CannotDeleteHead);
+    }
+
+    repo_data.branches.remove(name);
+    repo_data.versions.retain(|v| !erased_version_ids.contains(&v.id));
+
+    write_data_file(repo_data, repo_paths)?;
+
+    Ok(DeleteBranchResult::Ok)
 }
 
 fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResult<()> {
