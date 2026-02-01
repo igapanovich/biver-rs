@@ -150,6 +150,10 @@ pub enum Command {
     #[command(subcommand)]
     Rename(RenameCommand),
 
+    /// Delete commands
+    #[command(subcommand)]
+    Delete(DeleteCommand),
+
     /// List dependencies and check their statuses
     Dependencies,
 }
@@ -175,5 +179,21 @@ pub enum RenameCommand {
 
         #[arg(value_name = "NEW_NAME")]
         new_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DeleteCommand {
+    /// Delete a branch
+    Branch {
+        #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
+        versioned_file_path: PathBuf,
+
+        /// Do not ask for confirmation
+        #[arg(short = 'y', long = "yes")]
+        confirmed: bool,
+
+        #[arg(value_name = "NAME")]
+        name: String,
     },
 }
