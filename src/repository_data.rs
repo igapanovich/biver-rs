@@ -72,13 +72,6 @@ impl RepositoryData {
             && all_versions_belong_to_branches
     }
 
-    pub fn iter_ancestors(&'_ self, version_id: VersionId) -> impl Iterator<Item = &'_ Version> {
-        Ancestors {
-            repository_data: self,
-            version_id: Some(version_id),
-        }
-    }
-
     pub fn iter_version_and_ancestors(&'_ self, version_id: VersionId) -> impl Iterator<Item = &'_ Version> {
         let version = self.version(version_id);
         VersionAndAncestors {
@@ -109,8 +102,7 @@ pub struct Version {
     pub versioned_file_xxh3_128: u128,
     pub description: String,
     pub parent: Option<VersionId>,
-    pub content_blob_file_name: String,
-    pub content_blob_kind: ContentBlobKind,
+    pub content_blob: ContentBlob,
     pub preview_blob_file_name: Option<String>,
 }
 
@@ -136,15 +128,9 @@ impl Head {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ContentBlobKind {
-    Full,
-    Patch(VersionId),
-}
-
-impl ContentBlobKind {
-    pub fn is_patch(&self) -> bool {
-        matches!(self, ContentBlobKind::Patch(_))
-    }
+pub enum ContentBlob {
+    Full { full_blob_file_name: String },
+    Patch { base_blob_file_name: String, patch_blob_file_name: String },
 }
 
 pub struct VersionAndAncestors<'a> {
@@ -160,26 +146,6 @@ impl<'a> Iterator for VersionAndAncestors<'a> {
             None => None,
             Some(version) => {
                 self.current_version = version.parent.and_then(|parent_id| self.repository_data.version(parent_id));
-                Some(version)
-            }
-        }
-    }
-}
-
-pub struct Ancestors<'a> {
-    repository_data: &'a RepositoryData,
-    version_id: Option<VersionId>,
-}
-
-impl<'a> Iterator for Ancestors<'a> {
-    type Item = &'a Version;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.version_id {
-            None => None,
-            Some(version_id) => {
-                let version = self.repository_data.version(version_id).expect("Iterator created with invalid data");
-                self.version_id = version.parent;
                 Some(version)
             }
         }

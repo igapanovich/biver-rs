@@ -1,59 +1,20 @@
 use crate::biver_result::BiverResult;
 use crate::env::Env;
-use crate::extensions::CountIsAtLeast;
-use crate::repository_data::{ContentBlobKind, Head, RepositoryData, Version};
+use crate::repository_data::{ContentBlob, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
-use crate::{biver_result, hash, image_magick, known_file_types, nickname, xdelta3};
+use crate::{biver_result, hash, image_magick, known_file_types, nickname, repository_io};
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::time::{Duration, SystemTime};
+use crate::extensions::CountIsAtLeast;
 
 const DEFAULT_BRANCH: &str = "main";
 
 const MAX_CONSECUTIVE_PATCHES: usize = 7;
-
-pub fn paths(versioned_file_path: PathBuf) -> RepositoryPaths {
-    let extension = match versioned_file_path.extension() {
-        Some(extension) => {
-            let mut extension = OsString::from(extension);
-            extension.push(".biver");
-            extension
-        }
-        None => OsString::from("biver"),
-    };
-
-    let repository_dir_path = versioned_file_path.with_extension(extension);
-
-    let data_file_path = repository_dir_path.join("data.json");
-
-    RepositoryPaths {
-        versioned_file: versioned_file_path,
-        repository_dir: repository_dir_path,
-        data_file: data_file_path,
-    }
-}
-
-pub enum RepositoryDataResult {
-    Initialized(RepositoryData),
-    NotInitialized,
-}
-
-pub fn data(repository_paths: &RepositoryPaths) -> BiverResult<RepositoryDataResult> {
-    if !repository_paths.data_file.exists() {
-        return Ok(RepositoryDataResult::NotInitialized);
-    }
-
-    let data_file_contents = fs::read(&repository_paths.data_file)?;
-    let repository_data = serde_json::from_slice(&data_file_contents)?;
-
-    Ok(RepositoryDataResult::Initialized(repository_data))
-}
 
 pub enum CommitResult {
     Ok,
@@ -77,12 +38,6 @@ pub fn commit_initial_version(env: &Env, repo_paths: &RepositoryPaths, branch: O
 
     let branch = branch.unwrap_or(DEFAULT_BRANCH);
 
-    let preview_blob_file_name = if can_create_preview(env, repo_paths) {
-        Some(preview_blob_file_name(new_version_id))
-    } else {
-        None
-    };
-
     let new_version = Version {
         id: new_version_id,
         creation_time: Utc::now(),
@@ -91,9 +46,10 @@ pub fn commit_initial_version(env: &Env, repo_paths: &RepositoryPaths, branch: O
         versioned_file_xxh3_128,
         description: description.unwrap_or_default().to_string(),
         parent: None,
-        content_blob_file_name: content_blob_file_name(new_version_id),
-        content_blob_kind: ContentBlobKind::Full,
-        preview_blob_file_name: preview_blob_file_name.clone(),
+        content_blob: ContentBlob::Full {
+            full_blob_file_name: content_blob_file_name(new_version_id),
+        },
+        preview_blob_file_name: preview_blob_file_name(env, repo_paths, new_version_id),
     };
 
     let repo_data = RepositoryData {
@@ -102,11 +58,11 @@ pub fn commit_initial_version(env: &Env, repo_paths: &RepositoryPaths, branch: O
         versions: vec![new_version.clone()],
     };
 
-    if let Some(preview_blob_file_name) = preview_blob_file_name {
-        write_versioned_file_to_preview_blob(env, repo_paths, &preview_blob_file_name)?;
+    if let Some(preview_blob_file_name) = new_version.preview_blob_file_name {
+        repository_io::store_version_preview(env, repo_paths, &preview_blob_file_name, &repo_paths.versioned_file)?;
     }
-    write_versioned_file_to_content_blob(env, repo_paths, &repo_data, &new_version)?;
-    write_data_file(&repo_data, repo_paths)?;
+    repository_io::store_version_content(env, repo_paths, &new_version.content_blob, &repo_paths.versioned_file)?;
+    repository_io::write_data(repo_paths, &repo_data)?;
 
     Ok(CommitResult::Ok)
 }
@@ -136,13 +92,7 @@ pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut R
 
     let new_version_id = VersionId::new();
 
-    let content_blob_kind = content_blob_kind_for_child_of(repo_data, parent.id);
-
-    let preview_blob_file_name = if can_create_preview(env, repo_paths) {
-        Some(preview_blob_file_name(new_version_id))
-    } else {
-        None
-    };
+    let content_blob = content_blob(repo_data, Some(parent.id), content_blob_file_name(new_version_id));
 
     let new_version = Version {
         id: new_version_id,
@@ -152,20 +102,19 @@ pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut R
         versioned_file_xxh3_128,
         description: description.unwrap_or_default().to_string(),
         parent: Some(parent.id),
-        content_blob_file_name: content_blob_file_name(new_version_id),
-        content_blob_kind,
-        preview_blob_file_name: preview_blob_file_name.clone(),
+        content_blob,
+        preview_blob_file_name: preview_blob_file_name(env, repo_paths, new_version_id),
     };
 
     repo_data.head = Head::Branch(branch.to_string());
     repo_data.versions.push(new_version.clone());
     repo_data.branches.insert(branch.to_string(), new_version_id);
 
-    if let Some(preview_blob_file_name) = preview_blob_file_name {
-        write_versioned_file_to_preview_blob(env, repo_paths, &preview_blob_file_name)?;
+    if let Some(preview_blob_file_name) = new_version.preview_blob_file_name {
+        repository_io::store_version_preview(env, repo_paths, &preview_blob_file_name, &repo_paths.versioned_file)?;
     }
-    write_versioned_file_to_content_blob(env, repo_paths, &repo_data, &new_version)?;
-    write_data_file(repo_data, repo_paths)?;
+    repository_io::store_version_content(env, repo_paths, &new_version.content_blob, &repo_paths.versioned_file)?;
+    repository_io::write_data(repo_paths, repo_data)?;
 
     Ok(CommitResult::Ok)
 }
@@ -206,17 +155,6 @@ pub fn amend_head(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Repos
 
     let new_version_id = VersionId::new();
 
-    let content_blob_kind = match head.parent {
-        Some(parent_id) => content_blob_kind_for_child_of(repo_data, parent_id),
-        None => ContentBlobKind::Full,
-    };
-
-    let preview_blob_file_name = if can_create_preview(env, repo_paths) {
-        Some(preview_blob_file_name(new_version_id))
-    } else {
-        None
-    };
-
     let new_head = Version {
         id: new_version_id,
         creation_time: Utc::now(),
@@ -225,20 +163,21 @@ pub fn amend_head(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Repos
         versioned_file_xxh3_128,
         description: description.unwrap_or(&head.description).to_string(),
         parent: head.parent,
-        content_blob_file_name: content_blob_file_name(new_version_id),
-        content_blob_kind,
-        preview_blob_file_name: preview_blob_file_name.clone(),
+        content_blob: content_blob(repo_data, head.parent, content_blob_file_name(new_version_id)),
+        preview_blob_file_name: preview_blob_file_name(env, repo_paths, new_version_id),
     };
 
     repo_data.branches.insert(head_branch.to_string(), new_version_id);
     repo_data.versions.retain(|v| v.id != head_id);
-    repo_data.versions.push(new_head.clone());
+    repo_data.versions.push(new_head);
 
-    if let Some(preview_blob_file_name) = preview_blob_file_name {
-        write_versioned_file_to_preview_blob(env, repo_paths, &preview_blob_file_name)?;
+    let new_head = repo_data.head_version();
+
+    if let Some(preview_blob_file_name) = &new_head.preview_blob_file_name {
+        repository_io::store_version_preview(env, repo_paths, &preview_blob_file_name, &repo_paths.versioned_file)?;
     }
-    write_versioned_file_to_content_blob(env, repo_paths, &repo_data, &new_head)?;
-    write_data_file(&repo_data, repo_paths)?;
+    repository_io::store_version_content(env, repo_paths, &new_head.content_blob, &repo_paths.versioned_file)?;
+    repository_io::write_data(repo_paths, &repo_data)?;
 
     Ok(AmendResult::Ok)
 }
@@ -255,7 +194,7 @@ pub fn reword(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, targ
 
     target_version.description = description.to_string();
 
-    write_data_file(repo_data, repo_paths)?;
+    repository_io::write_data(repo_paths, repo_data)?;
 
     Ok(RewordResult::Ok)
 }
@@ -277,7 +216,7 @@ pub fn has_uncommitted_changes(repo_paths: &RepositoryPaths, repo_data: &Reposit
 
 pub fn discard(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryData) -> BiverResult<()> {
     let head_version = repo_data.head_version();
-    set_versioned_file_to_version(env, repo_paths, repo_data, &head_version)?;
+    repository_io::extract_version_content(env, repo_paths, &head_version.content_blob, &repo_paths.versioned_file)?;
     Ok(())
 }
 
@@ -293,7 +232,7 @@ pub fn reset(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, targe
         return Ok(ResetResult::HeadMustBeBranch);
     };
 
-    let Some(target_version) = resolve_target_strict(repo_data, target) else {
+    let Some(target_version) = resolve_version_id_target(repo_data, target) else {
         return Ok(ResetResult::InvalidTarget);
     };
     let target_version_id = target_version.id;
@@ -320,7 +259,7 @@ pub fn reset(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryData, targe
     repo_data.versions.retain(|v| !erased_version_ids.contains(&v.id));
     repo_data.branches.insert(branch.to_string(), target_version_id);
 
-    write_data_file(&repo_data, repo_paths)?;
+    repository_io::write_data(repo_paths, &repo_data)?;
 
     Ok(ResetResult::Ok)
 }
@@ -347,8 +286,8 @@ pub fn check_out(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Reposi
     repo_data.head = new_head;
     let new_head_version = repo_data.head_version();
 
-    write_data_file(repo_data, repo_paths)?;
-    set_versioned_file_to_version(env, repo_paths, repo_data, new_head_version)?;
+    repository_io::write_data(repo_paths, repo_data)?;
+    repository_io::extract_version_content(env, repo_paths, &new_head_version.content_blob, &repo_paths.versioned_file)?;
 
     Ok(CheckOutResult::Ok)
 }
@@ -374,7 +313,7 @@ pub fn restore(env: &Env, repo_paths: &RepositoryPaths, repo_data: &RepositoryDa
 
     let output = output.unwrap_or_else(|| &repo_paths.versioned_file);
 
-    write_version_content(env, repo_paths, repo_data, target_version, output)?;
+    repository_io::extract_version_content(env, repo_paths, &target_version.content_blob, output)?;
 
     Ok(RestoreResult::Ok)
 }
@@ -427,7 +366,7 @@ pub fn rename_branch(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryDat
 
     repo_data.branches.insert(new_name.to_string(), branch_version_id);
 
-    write_data_file(repo_data, repo_paths)?;
+    repository_io::write_data(repo_paths, repo_data)?;
 
     Ok(RenameBranchResult::Ok)
 }
@@ -473,67 +412,9 @@ pub fn delete_branch(repo_paths: &RepositoryPaths, repo_data: &mut RepositoryDat
     repo_data.branches.remove(name);
     repo_data.versions.retain(|v| !erased_version_ids.contains(&v.id));
 
-    write_data_file(repo_data, repo_paths)?;
+    repository_io::write_data(repo_paths, repo_data)?;
 
     Ok(DeleteBranchResult::Ok)
-}
-
-fn write_data_file(data: &RepositoryData, paths: &RepositoryPaths) -> BiverResult<()> {
-    if !data.valid() {
-        panic!("Repository data is not valid: {:#?}", data);
-    }
-
-    let backup1 = paths.file_path("data_backup1.json");
-    let backup2 = paths.file_path("data_backup2.json");
-    let backup3 = paths.file_path("data_backup3.json");
-    let backup4 = paths.file_path("data_backup4.json");
-    let backup5 = paths.file_path("data_backup5.json");
-
-    rotate_backup(&backup4, &backup5, Duration::from_hours(24))?;
-    rotate_backup(&backup3, &backup4, Duration::from_hours(5))?;
-    rotate_backup(&backup2, &backup3, Duration::from_hours(1))?;
-    rotate_backup(&backup1, &backup2, Duration::from_mins(5))?;
-    rotate_backup(&paths.data_file, &backup1, Duration::from_secs(10))?;
-
-    let data_file_content = serde_json::to_string_pretty(data)?;
-    fs::write(&paths.data_file, data_file_content)?;
-
-    Ok(())
-}
-
-fn rotate_backup(previous: &Path, next: &Path, interval: Duration) -> BiverResult<()> {
-    if !previous.exists() {
-        return Ok(());
-    }
-
-    if next.exists() && next.metadata()?.modified()? > SystemTime::now() - interval {
-        return Ok(());
-    }
-
-    fs::copy(previous, next)?;
-
-    Ok(())
-}
-
-fn set_versioned_file_to_version(env: &Env, paths: &RepositoryPaths, data: &RepositoryData, version: &Version) -> BiverResult<()> {
-    write_version_content(env, paths, data, version, &paths.versioned_file)
-}
-
-fn write_version_content(env: &Env, paths: &RepositoryPaths, data: &RepositoryData, version: &Version, output: &Path) -> BiverResult<()> {
-    let blob_path = paths.file_path(&version.content_blob_file_name);
-
-    match version.content_blob_kind {
-        ContentBlobKind::Full => {
-            fs::copy(&blob_path, output)?;
-        }
-        ContentBlobKind::Patch(base_version_id) => {
-            let base_version = data.version(base_version_id).expect("Version referenced by patch must exist");
-            let base_version_blob_path = paths.file_path(&base_version.content_blob_file_name);
-            xdelta3::apply_patch(env, base_version_blob_path.as_path(), blob_path.as_path(), output)?;
-        }
-    }
-
-    Ok(())
 }
 
 enum TargetResult<'b, 'v> {
@@ -607,7 +488,7 @@ fn resolve_target_strict_mut<'v>(repo_data: &'v mut RepositoryData, target: &str
     None
 }
 
-fn resolve_target_strict<'v>(repo_data: &'v RepositoryData, target: &str) -> Option<&'v Version> {
+fn resolve_version_id_target<'v>(repo_data: &'v RepositoryData, target: &str) -> Option<&'v Version> {
     if target.is_empty() {
         return None;
     }
@@ -671,34 +552,50 @@ fn content_blob_file_name(version_id: VersionId) -> String {
     version_id.to_file_name() + "_content"
 }
 
-fn preview_blob_file_name(version_id: VersionId) -> String {
-    version_id.to_file_name() + "_preview"
-}
+fn content_blob(repo_data: &RepositoryData, parent_id: Option<VersionId>, version_content_blob_file_name: String) -> ContentBlob {
+    let Some(parent_id) = parent_id else {
+        return ContentBlob::Full {
+            full_blob_file_name: version_content_blob_file_name,
+        };
+    };
 
-fn content_blob_kind_for_child_of(repo_data: &RepositoryData, parent_version_id: VersionId) -> ContentBlobKind {
-    let patch_sequence_count = repo_data.iter_ancestors(parent_version_id).take_while(|v| v.content_blob_kind.is_patch()).count() + 1;
-    if patch_sequence_count >= MAX_CONSECUTIVE_PATCHES {
-        ContentBlobKind::Full
+    let closest_ancestor_full_blob_info = repo_data
+        .iter_version_and_ancestors(parent_id)
+        .enumerate()
+        .filter_map(|(index, ancestor)| {
+            if let ContentBlob::Full { full_blob_file_name } = &ancestor.content_blob {
+                Some((index, full_blob_file_name))
+            } else {
+                None
+            }
+        })
+        .next();
+
+    let Some((closest_ancestor_full_blob_index, closest_ancestor_full_blob_file_name)) = closest_ancestor_full_blob_info else {
+        return ContentBlob::Full {
+            full_blob_file_name: version_content_blob_file_name,
+        };
+    };
+
+    if closest_ancestor_full_blob_index >= MAX_CONSECUTIVE_PATCHES {
+        ContentBlob::Full {
+            full_blob_file_name: version_content_blob_file_name,
+        }
     } else {
-        ContentBlobKind::Patch(parent_version_id)
+        ContentBlob::Patch {
+            base_blob_file_name: closest_ancestor_full_blob_file_name.clone(),
+            patch_blob_file_name: version_content_blob_file_name,
+        }
     }
 }
 
-fn write_versioned_file_to_content_blob(env: &Env, repo_paths: &RepositoryPaths, repository_data: &RepositoryData, version: &Version) -> BiverResult<()> {
-    let content_blob_file_path = repo_paths.file_path(&version.content_blob_file_name);
-
-    match version.content_blob_kind {
-        ContentBlobKind::Full => {
-            fs::copy(&repo_paths.versioned_file, content_blob_file_path)?;
-        }
-        ContentBlobKind::Patch(base_version_id) => {
-            let base_version = repository_data.version(base_version_id).unwrap();
-            let base_blob_file_path = repo_paths.file_path(&base_version.content_blob_file_name);
-            xdelta3::create_patch(env, base_blob_file_path.as_path(), &repo_paths.versioned_file, content_blob_file_path.as_path())?;
-        }
+fn preview_blob_file_name(env: &Env, repo_paths: &RepositoryPaths, version_id: VersionId) -> Option<String> {
+    if can_create_preview(env, repo_paths) {
+        let file_name = version_id.to_file_name() + "_preview";
+        Some(file_name)
+    } else {
+        None
     }
-
-    Ok(())
 }
 
 fn can_create_preview(env: &Env, repo_paths: &RepositoryPaths) -> bool {
@@ -711,12 +608,4 @@ fn can_create_preview(env: &Env, repo_paths: &RepositoryPaths) -> bool {
     };
 
     known_file_types::is_image(versioned_file_extension)
-}
-
-fn write_versioned_file_to_preview_blob(env: &Env, repo_paths: &RepositoryPaths, preview_blob_file_name: &str) -> BiverResult<()> {
-    let preview_blob_file_path = repo_paths.file_path(preview_blob_file_name);
-
-    image_magick::create_preview(env, repo_paths.versioned_file.as_path(), preview_blob_file_path.as_path())?;
-
-    Ok(())
 }

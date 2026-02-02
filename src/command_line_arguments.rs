@@ -133,7 +133,7 @@ pub enum Command {
         target: String,
     },
 
-    /// Set versioned file to the state it was in when the specified version was created
+    /// Set the versioned file to the state it was in when the specified version was created
     Restore {
         #[arg(short = 'f', long = "file", env = "BIVER_VERSIONED_FILE")]
         versioned_file_path: PathBuf,

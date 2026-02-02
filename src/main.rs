@@ -3,12 +3,14 @@ use crate::command_line_arguments::{Command, CommandLineArguments, DeleteCommand
 use crate::env::Env;
 use crate::repository_data::RepositoryData;
 use crate::repository_operations::{
-    AmendResult, CheckOutResult, CommitResult, DeleteBranchResult, PreviewResult, RenameBranchResult, RepositoryDataResult, ResetResult, RestoreResult, RewordResult, VersionResult,
+    AmendResult, CheckOutResult, CommitResult, DeleteBranchResult, PreviewResult, RenameBranchResult, ResetResult, RestoreResult, RewordResult, VersionResult,
 };
 use clap::Parser;
 use colored::Colorize;
 use std::io;
 use std::process::ExitCode;
+use crate::repository_io::RepositoryDataResult;
+use crate::repository_paths::RepositoryPaths;
 
 mod biver_result;
 mod command_line_arguments;
@@ -25,6 +27,7 @@ mod repository_paths;
 mod version_id;
 mod viewer;
 mod xdelta3;
+mod repository_io;
 
 fn main() -> ExitCode {
     let arguments = CommandLineArguments::parse();
@@ -58,8 +61,8 @@ fn main() -> ExitCode {
 fn run_command(env: &Env, command: Command) -> BiverResult<()> {
     match command {
         Command::Status { versioned_file_path, all } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?;
 
             match repo_data {
                 RepositoryDataResult::NotInitialized => println!("Not initialized"),
@@ -73,8 +76,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
         }
 
         Command::List(ListCommand::Branches { versioned_file_path }) => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             formatting::print_branch_list(&repo_data);
 
@@ -82,8 +85,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
         }
 
         Command::Preview { versioned_file_path, target } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             let version = match repository_operations::version(&repo_data, &target) {
                 VersionResult::InvalidTarget => return error("Invalid target"),
@@ -105,8 +108,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             target1,
             target2,
         } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             let version_and_preview = |target: Option<&str>| {
                 let version = match target {
@@ -140,8 +143,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             branch,
             description,
         } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?;
 
             let result = match repo_data {
                 RepositoryDataResult::NotInitialized => repository_operations::commit_initial_version(env, &repo_paths, branch.as_deref(), description.as_deref())?,
@@ -163,8 +166,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             confirmed,
             description,
         } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let mut repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             if !confirmed {
                 println!("Are you sure you want to overwrite the head version? (y/N)");
@@ -190,8 +193,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             target,
             description,
         } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let mut repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             let result = repository_operations::reword(&repo_paths, &mut repo_data, &target, &description)?;
 
@@ -202,8 +205,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
         }
 
         Command::Discard { versioned_file_path, confirmed } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             if !repository_operations::has_uncommitted_changes(&repo_paths, &repo_data)? {
                 return warning("No uncommitted changes");
@@ -228,8 +231,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             confirmed,
             target,
         } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let mut repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             if !confirmed {
                 println!("Are you sure you want to reset? (y/N)");
@@ -256,8 +259,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
         }
 
         Command::Checkout { versioned_file_path, target } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let mut repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             let result = repository_operations::check_out(env, &repo_paths, &mut repo_data, &target)?;
 
@@ -273,8 +276,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
             output,
             target,
         } => {
-            let repo_paths = repository_operations::paths(versioned_file_path);
-            let repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+            let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+            let repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
             let result = repository_operations::restore(env, &repo_paths, &repo_data, &target, output.as_deref())?;
 
@@ -291,8 +294,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
                 old_name,
                 new_name,
             } => {
-                let repo_paths = repository_operations::paths(versioned_file_path);
-                let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+                let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+                let mut repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
                 let result = repository_operations::rename_branch(&repo_paths, &mut repo_data, &old_name, &new_name)?;
 
@@ -306,8 +309,8 @@ fn run_command(env: &Env, command: Command) -> BiverResult<()> {
 
         Command::Delete(delete_command) => match delete_command {
             DeleteCommand::Branch { versioned_file_path, confirmed, name } => {
-                let repo_paths = repository_operations::paths(versioned_file_path);
-                let mut repo_data = repository_operations::data(&repo_paths)?.initialized()?;
+                let repo_paths = RepositoryPaths::from_versioned_file_path(versioned_file_path);
+                let mut repo_data = repository_io::read_data(&repo_paths)?.initialized()?;
 
                 if !confirmed {
                     println!("Are you sure you want to delete this branch? (y/N)");
