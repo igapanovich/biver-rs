@@ -104,6 +104,7 @@ pub struct Version {
     pub parent: Option<VersionId>,
     pub content_blob: ContentBlob,
     pub preview_blob_file_name: Option<String>,
+    pub compression: f64
 }
 
 impl Version {
@@ -131,6 +132,15 @@ impl Head {
 pub enum ContentBlob {
     Full { full_blob_file_name: String },
     Patch { base_blob_file_name: String, patch_blob_file_name: String },
+}
+
+impl ContentBlob {
+    pub fn own_blob_file_name(&self) -> &str {
+        match self {
+            ContentBlob::Full { full_blob_file_name } => full_blob_file_name,
+            ContentBlob::Patch { patch_blob_file_name, .. } => patch_blob_file_name,
+        }
+    }
 }
 
 pub struct VersionAndAncestors<'a> {

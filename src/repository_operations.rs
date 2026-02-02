@@ -1,5 +1,6 @@
 use crate::biver_result::BiverResult;
 use crate::env::Env;
+use crate::extensions::CountIsAtLeast;
 use crate::repository_data::{ContentBlob, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
@@ -10,7 +11,6 @@ use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use crate::extensions::CountIsAtLeast;
 
 const DEFAULT_BRANCH: &str = "main";
 
@@ -50,6 +50,7 @@ pub fn commit_initial_version(env: &Env, repo_paths: &RepositoryPaths, branch: O
             full_blob_file_name: content_blob_file_name(new_version_id),
         },
         preview_blob_file_name: preview_blob_file_name(env, repo_paths, new_version_id),
+        compression: compression(versioned_file_length, versioned_file_length),
     };
 
     let repo_data = RepositoryData {
@@ -93,6 +94,12 @@ pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut R
     let new_version_id = VersionId::new();
 
     let content_blob = content_blob(repo_data, Some(parent.id), content_blob_file_name(new_version_id));
+    let content_blob_file_name = content_blob.own_blob_file_name();
+
+    repository_io::store_version_content(env, repo_paths, &content_blob, &repo_paths.versioned_file)?;
+
+    let content_blob_size = fs::metadata(repo_paths.file_path(content_blob_file_name))?.len();
+    let compression = compression(versioned_file_length, content_blob_size);
 
     let new_version = Version {
         id: new_version_id,
@@ -104,6 +111,7 @@ pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut R
         parent: Some(parent.id),
         content_blob,
         preview_blob_file_name: preview_blob_file_name(env, repo_paths, new_version_id),
+        compression,
     };
 
     repo_data.head = Head::Branch(branch.to_string());
@@ -113,7 +121,6 @@ pub fn commit_version(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut R
     if let Some(preview_blob_file_name) = new_version.preview_blob_file_name {
         repository_io::store_version_preview(env, repo_paths, &preview_blob_file_name, &repo_paths.versioned_file)?;
     }
-    repository_io::store_version_content(env, repo_paths, &new_version.content_blob, &repo_paths.versioned_file)?;
     repository_io::write_data(repo_paths, repo_data)?;
 
     Ok(CommitResult::Ok)
@@ -155,6 +162,14 @@ pub fn amend_head(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Repos
 
     let new_version_id = VersionId::new();
 
+    let content_blob = content_blob(repo_data, head.parent, content_blob_file_name(new_version_id));
+    let content_blob_file_name = content_blob.own_blob_file_name();
+
+    repository_io::store_version_content(env, repo_paths, &content_blob, &repo_paths.versioned_file)?;
+
+    let content_blob_size = fs::metadata(repo_paths.file_path(content_blob_file_name))?.len();
+    let compression = compression(versioned_file_length, content_blob_size);
+
     let new_head = Version {
         id: new_version_id,
         creation_time: Utc::now(),
@@ -163,8 +178,9 @@ pub fn amend_head(env: &Env, repo_paths: &RepositoryPaths, repo_data: &mut Repos
         versioned_file_xxh3_128,
         description: description.unwrap_or(&head.description).to_string(),
         parent: head.parent,
-        content_blob: content_blob(repo_data, head.parent, content_blob_file_name(new_version_id)),
+        content_blob,
         preview_blob_file_name: preview_blob_file_name(env, repo_paths, new_version_id),
+        compression,
     };
 
     repo_data.branches.insert(head_branch.to_string(), new_version_id);
@@ -608,4 +624,8 @@ fn can_create_preview(env: &Env, repo_paths: &RepositoryPaths) -> bool {
     };
 
     known_file_types::is_image(versioned_file_extension)
+}
+
+fn compression(versioned_file_length: u64, content_blob_size: u64) -> f64 {
+    (versioned_file_length as f64 - content_blob_size as f64) / versioned_file_length as f64
 }
