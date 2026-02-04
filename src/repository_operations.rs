@@ -4,7 +4,7 @@ use crate::extensions::CountIsAtLeast;
 use crate::repository_data::{ContentBlob, Head, RepositoryData, Version};
 use crate::repository_paths::RepositoryPaths;
 use crate::version_id::VersionId;
-use crate::{biver_result, hash, image_magick, known_file_types, nickname, repository_io};
+use crate::{biver_result, hash, image_magick, known_file_types, nickname, repository_io, xdelta3};
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -637,34 +637,37 @@ fn store_version_content(env: &Env, repo_paths: &RepositoryPaths, repo_data: &Re
     let content_blob_file_name = content_blob_file_name(version_id);
     let content_blob_file_path = repo_paths.file_path(&content_blob_file_name);
 
-    let content_blob = match parent_id {
-        None => ContentBlob::Full {
+    if !xdelta3::ready(env) {
+        return Ok(ContentBlob::Full {
             full_blob_file_name: content_blob_file_name,
-        },
-        Some(parent_id) => {
-            let base_blob_file_name = base_blob_file_name(repo_data, parent_id);
-            let base_blob_file_path = repo_paths.file_path(&base_blob_file_name);
+        });
+    }
 
-            repository_io::store_version_content_patch(env, &content_blob_file_path, &base_blob_file_path, &repo_paths.versioned_file)?;
+    let Some(parent_id) = parent_id else {
+        return Ok(ContentBlob::Full {
+            full_blob_file_name: content_blob_file_name,
+        });
+    };
 
-            let patch_ratio = patch_ratio(&content_blob_file_path, &base_blob_file_path)?;
-            let best_expected_patch_ratio = best_expected_patch_ratio(repo_data, parent_id);
-            let should_create_patch = should_create_patch(patch_ratio, best_expected_patch_ratio);
+    let base_blob_file_name = base_blob_file_name(repo_data, parent_id);
+    let base_blob_file_path = repo_paths.file_path(&base_blob_file_name);
 
-            let content_blob = if should_create_patch {
-                ContentBlob::Patch {
-                    base_blob_file_name: base_blob_file_name.to_string(),
-                    patch_blob_file_name: content_blob_file_name,
-                    ratio: patch_ratio,
-                }
-            } else {
-                repository_io::store_version_content_full(&content_blob_file_path, &repo_paths.versioned_file)?;
-                ContentBlob::Full {
-                    full_blob_file_name: content_blob_file_name,
-                }
-            };
+    repository_io::store_version_content_patch(env, &content_blob_file_path, &base_blob_file_path, &repo_paths.versioned_file)?;
 
-            content_blob
+    let patch_ratio = patch_ratio(&content_blob_file_path, &base_blob_file_path)?;
+    let best_expected_patch_ratio = best_expected_patch_ratio(repo_data, parent_id);
+    let should_create_patch = should_create_patch(patch_ratio, best_expected_patch_ratio);
+
+    let content_blob = if should_create_patch {
+        ContentBlob::Patch {
+            base_blob_file_name: base_blob_file_name.to_string(),
+            patch_blob_file_name: content_blob_file_name,
+            ratio: patch_ratio,
+        }
+    } else {
+        repository_io::store_version_content_full(&content_blob_file_path, &repo_paths.versioned_file)?;
+        ContentBlob::Full {
+            full_blob_file_name: content_blob_file_name,
         }
     };
 
